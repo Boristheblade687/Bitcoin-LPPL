@@ -1106,16 +1106,38 @@ with col_dash:
 
 
 # ==============================================================================
-# SECTION : COURBE DE PRÉDICTION OOS (1 AN SUR TOUT L'HISTORIQUE)
+# SECTION : COURBE DE PRÉDICTION OOS (HORIZON PERSONNALISABLE)
 # ==============================================================================
 st.markdown("---")
+
+oos_chart_options = {
+    "3 mois (90 jours)": 90,
+    "6 mois (180 jours)": 180,
+    "1 an (365 jours)": 365,
+    "2 ans (730 jours)": 730,
+    "3 ans (1095 jours)": 1095,
+}
+
+selected_oos_chart_label = st.selectbox(
+    "Sélectionner l'horizon OOS pour la comparaison de prédiction",
+    options=list(oos_chart_options.keys()),
+    index=2,
+    key="oos_chart_horizon_selectbox",
+    help=(
+        "❓ Permet de choisir l'horizon de prédiction Out-Of-Sample affiché dans"
+        " le graphique de comparaison."
+    ),
+)
+h_days = oos_chart_options[selected_oos_chart_label]
+
 st.subheader(
-    "📈 Comparaison de la Courbe de Prédiction Out-Of-Sample (1 An) vs Prix Réel"
+    f"📈 Comparaison de la Courbe de Prédiction Out-Of-Sample"
+    f" ({selected_oos_chart_label}) vs Prix Réel"
 )
 
 with st.expander("❓ Guide de Lecture - OOS Historique"):
-  st.markdown("""
-    * Ce graphique trace les projections faites par le modèle global avec un horizon fixe de **1 an** en amont, comparées directement au prix réel atteint à cette échéance.
+  st.markdown(f"""
+    * Ce graphique trace les projections faites par le modèle global avec un horizon fixe de **{selected_oos_chart_label}** en amont, comparées directement au prix réel atteint à cette échéance.
     * Il permet d'évaluer visuellement la robustesse et le biais d'anticipation du modèle sur cet horizon à travers tout l'historique du Bitcoin.
     """)
 
@@ -1130,8 +1152,7 @@ fig_oos_parallel.add_trace(
     )
 )
 
-h_days = 365
-label = "OOS 1 An"
+label = f"OOS ({selected_oos_chart_label})"
 color = "#38BDF8"
 
 days_arr_p = df["Days"].values
