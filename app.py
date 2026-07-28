@@ -139,6 +139,14 @@ with st.sidebar.expander("🎛️ Options du Modèle & Affichage", expanded=True
           " projections futures."
       ),
   )
+  log_time_axis = st.checkbox(
+      "Échelle de Temps Logarithmique (ln(t) sur l'Axe X)",
+      value=False,
+      help=(
+          "❓ Permet de basculer l'axe X des graphiques entre le temps linéaire"
+          " calendaire (Date) et le logarithme du temps (ln(t))."
+      ),
+  )
 
 with st.sidebar.expander("🌊 Harmoniques LPPL", expanded=True):
   st.markdown("**Harmonic 1 (Macro Cycle)**")
@@ -291,10 +299,12 @@ if st.sidebar.button(
   lnT_vec = df["lnT"].to_numpy()
   act_log_vec = df["actualLog"].to_numpy()
 
+
   def loss_func_fast(params):
     p_A, p_B, p_C1, p_omega, p_p1, p_C2, p_p2 = params
     preds = f_log_model(lnT_vec, p_A, p_B, p_C1, p_omega, p_p1, p_C2, p_p2)
     return np.mean((act_log_vec - preds) ** 2)
+
 
   bounds = [
       (-45.0, -25.0),
@@ -470,12 +480,14 @@ def run_rolling_walk_forward(
       train_lnT = lnT_all[start_idx:train_end_idx]
       train_act_log = log_close[start_idx:train_end_idx]
 
+
       def loss_func_local(params):
         p_A, p_B, p_C1, p_omega, p_p1, p_C2, p_p2 = params
         preds = f_log_model(
             train_lnT, p_A, p_B, p_C1, p_omega, p_p1, p_C2, p_p2
         )
         return np.mean((train_act_log - preds) ** 2)
+
 
       bounds = [
           (-45.0, -25.0),
@@ -594,15 +606,30 @@ for i, d in enumerate(future_rel_days):
     base_err_1095 = np.interp(1095.0, wf_milestone_days, wf_milestone_errs)
     dynamic_uncertainty[i] = base_err_1095 * np.sqrt(d / 1095.0)
 
-all_dates = df["Date"].tolist() + future_dates_arr
+# Préparation des axes X selon l'option (Linéaire Date vs Logarithme du Temps ln(t))
+if log_time_axis:
+  x_hist = df["lnT"]
+  x_trend = df["lnT"].tolist() + list(future_lnT_arr)
+  x_proj = [df["lnT"].iloc[-1]] + list(future_lnT_arr)
+  x_lppl_all = df["lnT"].tolist() + list(future_lnT_arr)
+  xaxis_title = "Logarithme du Temps (ln(t) depuis le Genesis)"
+  custom_hover = df["Date"].dt.strftime("%Y-%m-%d").values
+  fut_hover = [d.strftime("%Y-%m-%d") for d in future_dates_arr]
+  all_hover = (
+      df["Date"].dt.strftime("%Y-%m-%d").tolist() + fut_hover
+  )  # pour les tendances et bandes
+else:
+  x_hist = df["Date"]
+  x_trend = df["Date"].tolist() + future_dates_arr
+  x_proj = [df["Date"].iloc[-1]] + future_dates_arr
+  x_lppl_all = df["Date"].tolist() + future_dates_arr
+  xaxis_title = "Date"
+
 all_pl_trend = df["trendPrice"].tolist() + list(future_pl_trend)
 all_pl_upper = df["trendUpperPrice"].tolist() + list(future_pl_upper)
 all_pl_lower = df["trendLowerPrice"].tolist() + list(future_pl_lower)
 
-proj_dates = [df["Date"].iloc[-1]] + future_dates_arr
 proj_lppl = [df["modelPrice"].iloc[-1]] + list(future_lppl)
-
-all_lppl_dates = df["Date"].tolist() + future_dates_arr
 all_lppl_prices = df["modelPrice"].tolist() + list(future_lppl)
 
 fig = make_subplots(
@@ -612,14 +639,19 @@ fig = make_subplots(
     vertical_spacing=0.08,
     row_heights=[0.72, 0.28],
     subplot_titles=(
-        "Prix & Projections Avancées LPPL (Échelle Logarithmique)",
+        (
+            "Prix & Projections Avancées LPPL (Échelle Logarithmique du Temps"
+            " ln(t))"
+            if log_time_axis
+            else "Prix & Projections Avancées LPPL (Temps Linéaire / Date)"
+        ),
         "Analyse des Résidus (Z-Scores LPPL & Power Law)",
     ),
 )
 
 fig.add_trace(
     go.Scatter(
-        x=df["Date"],
+        x=x_hist,
         y=df["Close"],
         mode="lines",
         name="Prix BTC",
@@ -647,7 +679,7 @@ if show_lppl:
 
     fig.add_trace(
         go.Scatter(
-            x=all_lppl_dates + all_lppl_dates[::-1],
+            x=x_lppl_all + x_lppl_all[::-1],
             y=comp_upper + comp_lower[::-1],
             fill="toself",
             fillcolor=f"rgba(255, 153, 0, {band['opacity']})",
@@ -661,7 +693,7 @@ if show_lppl:
 
   fig.add_trace(
       go.Scatter(
-          x=df["Date"],
+          x=x_hist,
           y=df["modelPrice"],
           mode="lines",
           name="LPPL Model (Fit)",
@@ -672,7 +704,7 @@ if show_lppl:
   )
   fig.add_trace(
       go.Scatter(
-          x=proj_dates,
+          x=x_proj,
           y=proj_lppl,
           mode="lines",
           name="LPPL Projection Centrale",
@@ -685,7 +717,7 @@ if show_lppl:
 if show_trend:
   fig.add_trace(
       go.Scatter(
-          x=all_dates,
+          x=x_trend,
           y=all_pl_trend,
           mode="lines",
           name="Power Law Trend",
@@ -696,7 +728,7 @@ if show_trend:
   )
   fig.add_trace(
       go.Scatter(
-          x=all_dates,
+          x=x_trend,
           y=all_pl_upper,
           mode="lines",
           name=f"Power Law Top Band (+{pl_sigma_upper}σ)",
@@ -707,7 +739,7 @@ if show_trend:
   )
   fig.add_trace(
       go.Scatter(
-          x=all_dates,
+          x=x_trend,
           y=all_pl_lower,
           mode="lines",
           name=f"Power Law Floor Band (-{pl_sigma_lower}σ)",
@@ -719,7 +751,7 @@ if show_trend:
 
 fig.add_trace(
     go.Scatter(
-        x=df["Date"],
+        x=x_hist,
         y=df["z_score"],
         mode="lines",
         name="Z-Score LPPL",
@@ -731,7 +763,7 @@ fig.add_trace(
 )
 fig.add_trace(
     go.Scatter(
-        x=df["Date"],
+        x=x_hist,
         y=df["z_score_pl"],
         mode="lines",
         name="Z-Score Power Law",
@@ -783,6 +815,26 @@ fig.add_hline(y=0.0, line_dash="solid", line_color="gray", row=2, col=1)
 fig.update_yaxes(type="log", title_text="Prix (USD)", row=1, col=1)
 fig.update_yaxes(title_text="Z-Score (σ)", row=2, col=1)
 
+xaxis_config = (
+    dict(title_text=xaxis_title, rangeslider=dict(visible=False))
+    if log_time_axis
+    else dict(
+        title_text=xaxis_title,
+        rangeselector=dict(
+            y=1.12,
+            x=0.0,
+            buttons=list([
+                dict(count=1, label="1y", step="year", stepmode="backward"),
+                dict(count=4, label="4y", step="year", stepmode="backward"),
+                dict(step="all", label="All"),
+            ]),
+        ),
+        rangeslider=dict(visible=False),
+    )
+)
+
+fig.update_xaxes(xaxis_config)
+
 fig.update_layout(
     template="plotly_dark",
     height=1000,
@@ -804,18 +856,6 @@ fig.update_layout(
         x=0.5,
         font=dict(size=9),
         bgcolor="rgba(0,0,0,0.5)",
-    ),
-    xaxis=dict(
-        rangeselector=dict(
-            y=1.12,
-            x=0.0,
-            buttons=list([
-                dict(count=1, label="1y", step="year", stepmode="backward"),
-                dict(count=4, label="4y", step="year", stepmode="backward"),
-                dict(step="all", label="All"),
-            ]),
-        ),
-        rangeslider=dict(visible=False),
     ),
 )
 
@@ -1083,7 +1123,7 @@ with st.expander("❓ Guide de Lecture - OOS Historique"):
 fig_oos_parallel = go.Figure()
 fig_oos_parallel.add_trace(
     go.Scatter(
-        x=df["Date"],
+        x=x_hist,
         y=df["Close"],
         mode="lines",
         name="Prix BTC Réel",
@@ -1097,6 +1137,7 @@ color = "#38BDF8"
 
 days_arr_p = df["Days"].values
 dates_arr_p = df["Date"].values
+lnT_arr_p = df["lnT"].values
 
 if len(days_arr_p) > h_days:
   t_fut_p = days_arr_p[:-h_days] + h_days
@@ -1104,11 +1145,15 @@ if len(days_arr_p) > h_days:
   preds_p = np.exp(
       f_log_model(lnT_fut_p, A, B, C1, omega, phi1, C2, phi2)
   )
-  target_dates_p = dates_arr_p[h_days:]
+
+  if log_time_axis:
+    x_oos_p = lnT_fut_p
+  else:
+    x_oos_p = dates_arr_p[h_days:]
 
   fig_oos_parallel.add_trace(
       go.Scatter(
-          x=target_dates_p,
+          x=x_oos_p,
           y=preds_p,
           mode="lines",
           name=label,
@@ -1130,7 +1175,7 @@ fig_oos_parallel.update_layout(
         font=dict(size=10),
         bgcolor="rgba(0,0,0,0.5)",
     ),
-    xaxis_title="Date",
+    xaxis_title=xaxis_title,
 )
 st.plotly_chart(fig_oos_parallel, use_container_width=True)
 
@@ -1225,6 +1270,7 @@ with col_rwf_chart:
         margin=dict(l=20, r=20, t=30, b=20),
         legend=dict(orientation="h", y=1.18, x=0.5, xanchor="center"),
         yaxis_title=f"{metric_choice} (%)",
+        xaxis_title="Date d'Évaluation",
     )
     st.plotly_chart(fig_rwf, use_container_width=True)
   else:
