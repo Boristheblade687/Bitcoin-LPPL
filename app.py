@@ -956,7 +956,6 @@ with col_dist2:
     Ce graphique superpose ({dist_mode_label}) :
     * **L'histogramme réel** de vos erreurs de prédiction en pourcentage.
     * **La loi de Student ajustée** (df = {df_t:.2f}).
-    * **Les marqueurs sigma positifs** basés sur l'écart-type empirique.
     
     *L'utilisation d'une loi de Student (t-distribution) plutôt qu'une gaussienne classique permet de modéliser proprement les **fat tails** caractéristiques du Bitcoin à long terme.*
     """)
