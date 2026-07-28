@@ -915,6 +915,7 @@ selected_dist_label = st.selectbox(
     "Sélectionner la source des résidus (In-Sample ou Horizon Forward OOS)",
     options=list(dist_horizon_options.keys()),
     index=3,
+    key="dist_horizon_selectbox",
     help=(
         "❓ Permet de choisir si l'analyse de distribution et des résidus s'effectue"
         " sur l'In-Sample global ou sur les erreurs de prédiction Out-Of-Sample"
@@ -1118,10 +1119,25 @@ oos_chart_options = {
     "3 ans (1095 jours)": 1095,
 }
 
+if "oos_chart_horizon_selectbox" not in st.session_state:
+  st.session_state["oos_chart_horizon_selectbox"] = "1 an (365 jours)"
+
+current_label = st.session_state["oos_chart_horizon_selectbox"]
+
+st.subheader(
+    f"📈 Comparaison de la Courbe de Prédiction Out-Of-Sample"
+    f" ({current_label}) vs Prix Réel"
+)
+
+with st.expander("❓ Guide de Lecture - OOS Historique"):
+  st.markdown(f"""
+    * Ce graphique trace les projections faites par le modèle global avec un horizon fixe de **{current_label}** en amont, comparées directement au prix réel atteint à cette échéance.
+    * Il permet d'évaluer visuellement la robustesse et le biais d'anticipation du modèle sur cet horizon à travers tout l'historique du Bitcoin.
+    """)
+
 selected_oos_chart_label = st.selectbox(
     "Sélectionner l'horizon OOS pour la comparaison de prédiction",
     options=list(oos_chart_options.keys()),
-    index=2,
     key="oos_chart_horizon_selectbox",
     help=(
         "❓ Permet de choisir l'horizon de prédiction Out-Of-Sample affiché dans"
@@ -1129,17 +1145,6 @@ selected_oos_chart_label = st.selectbox(
     ),
 )
 h_days = oos_chart_options[selected_oos_chart_label]
-
-st.subheader(
-    f"📈 Comparaison de la Courbe de Prédiction Out-Of-Sample"
-    f" ({selected_oos_chart_label}) vs Prix Réel"
-)
-
-with st.expander("❓ Guide de Lecture - OOS Historique"):
-  st.markdown(f"""
-    * Ce graphique trace les projections faites par le modèle global avec un horizon fixe de **{selected_oos_chart_label}** en amont, comparées directement au prix réel atteint à cette échéance.
-    * Il permet d'évaluer visuellement la robustesse et le biais d'anticipation du modèle sur cet horizon à travers tout l'historique du Bitcoin.
-    """)
 
 fig_oos_parallel = go.Figure()
 fig_oos_parallel.add_trace(
@@ -1230,6 +1235,7 @@ with col_rwf_params:
       "Horizon de Test OOS",
       options=list(horizon_options.keys()),
       index=2,
+      key="horizon_test_oos_selectbox",
       help=(
           "❓ Choisit l'horizon de prédiction hors-échantillon testé à chaque"
           " étape glissante."
