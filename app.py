@@ -210,35 +210,52 @@ with st.sidebar.expander("🌊 Harmoniques LPPL", expanded=True):
 # ==============================================================================
 @st.cache_data(ttl=3600)
 def load_btc_data():
-  df = pd.DataFrame()
+  df_cm = pd.DataFrame()
   try:
-    import yfinance as yf
-
-    # Téléchargement direct et propre via Yahoo Finance
-    df_raw = yf.download("BTC-USD", start="2009-01-03", progress=False)
-    if not df_raw.empty:
-      if isinstance(df_raw.columns, pd.MultiIndex):
-        df_raw = df_raw.droplevel(1, axis=1)
-      df = df_raw.reset_index()
-      df = df.rename(columns={"Date": "Date", "Close": "Close"})
-      df = df[["Date", "Close"]].dropna()
+    url_coinmetrics = (
+        "https://raw.githubusercontent.com/coinmetrics/data/master/csv/btc.csv"
+    )
+    df_raw = pd.read_csv(url_coinmetrics)
+    df_cm["Date"] = pd.to_datetime(df_raw["time"])
+    df_cm["Close"] = pd.to_numeric(df_raw["PriceUSD"], errors="coerce")
+    df_cm = df_cm.dropna(subset=["Close"])
   except Exception:
     pass
 
-  # Fallback sur CoinMetrics si yfinance échoue
-  if df.empty:
-    try:
-      url_coinmetrics = (
-          "https://raw.githubusercontent.com/coinmetrics/data/master/csv/btc.csv"
-      )
-      df_raw = pd.read_csv(url_coinmetrics)
-      df = pd.DataFrame()
-      df["Date"] = pd.to_datetime(df_raw["time"])
-      df["Close"] = pd.to_numeric(df_raw["PriceUSD"], errors="coerce")
-      df = df.dropna(subset=["Close"])
-    except Exception as e:
-      st.error(f"Erreur lors du chargement des données historiques : {e}")
-      st.stop()
+  df_binance = pd.DataFrame()
+  try:
+    all_klines = []
+    start_time = int(pd.to_datetime("2017-08-17").timestamp() * 1000)
+    while True:
+      url_binance = f"https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&startTime={start_time}&limit=1000"
+      res = pd.read_json(url_binance)
+      if res.empty:
+        break
+      all_klines.append(res)
+      start_time = int(res.iloc[-1][0]) + 86400000
+      if len(res) < 1000:
+        break
+    df_b = pd.concat(all_klines, ignore_index=True)
+    df_binance["Date"] = pd.to_datetime(df_b[0], unit="ms")
+    df_binance["Close"] = pd.to_numeric(df_b[4], errors="coerce")
+    df_binance = df_binance.dropna(subset=["Close"])
+  except Exception:
+    pass
+
+  if df_cm.empty and df_binance.empty:
+    st.error(
+        "Erreur critique : Impossible de charger les données historiques."
+    )
+    st.stop()
+
+  # Fusion : CoinMetrics pour le début, Binance pour compléter jusqu'à aujourd'hui
+  if not df_cm.empty and not df_binance.empty:
+    df_cm = df_cm[df_cm["Date"] < df_binance["Date"].min()]
+    df = pd.concat([df_cm, df_binance], ignore_index=True)
+  elif not df_binance.empty:
+    df = df_binance
+  else:
+    df = df_cm
 
   df = (
       df[df["Close"] > 0]
