@@ -241,7 +241,6 @@ def load_btc_data():
 
   # 3. Fusion intelligente des deux sources
   if not df_cm.empty and not df_yf.empty:
-    # On prend CoinMetrics pour tout ce qui est avant le début de yfinance
     min_yf_date = df_yf["Date"].min()
     df_cm_old = df_cm[df_cm["Date"] < min_yf_date]
     df = pd.concat([df_cm_old, df_yf], ignore_index=True)
@@ -1044,6 +1043,46 @@ with col_dist1:
     st.warning("Données OOS insuffisantes pour afficher la distribution.")
 
 with col_dash:
+  # --- Widget 1 : Live & Modèle ---
+  with st.container(border=True):
+    st.subheader("📌 Live & Modèle")
+    if not df.empty:
+      current_btc_price = df["Close"].iloc[-1]
+      current_model_price = df["modelPrice"].iloc[-1]
+      current_z_score = df["z_score"].iloc[-1]
+
+      price_delta = (
+          (current_btc_price - df["Close"].iloc[-2]) / df["Close"].iloc[-2] * 100
+          if len(df) > 1
+          else 0.0
+      )
+
+      st.metric(
+          "Prix Actuel BTC",
+          f"${current_btc_price:,.2f}",
+          delta=f"{price_delta:+.2f}% (24h)",
+      )
+      st.metric("Prix Théorique (LPPL)", f"${current_model_price:,.2f}")
+      st.metric("Z-Score LPPL", f"{current_z_score:.2f}σ")
+
+  # --- Widget 2 : Valuation ---
+  with st.container(border=True):
+    st.subheader("🎯 Valuation")
+    st.metric(
+        "Percentile Ratio",
+        f"{ratio_percentile:.1f}%",
+        help=(
+            "❓ Position relative de la valorisation actuelle par rapport à"
+            " l'historique complet."
+        ),
+    )
+    st.markdown(
+        f"Statut : <span"
+        f" style='color:{state_color};font-weight:bold;'>{state_txt}</span>",
+        unsafe_allow_html=True,
+    )
+
+  # --- Widget 3 : Fit Quality & Robustesse ---
   with st.container(border=True):
     st.subheader("📊 Fit Quality & Robustesse")
 
@@ -1112,23 +1151,6 @@ with col_dash:
             " (faible surapprentissage)."
         ),
     )
-
-  with st.container(border=True):
-    st.subheader("🎯 Valuation")
-    st.metric(
-        "Percentile Ratio",
-        f"{ratio_percentile:.1f}%",
-        help=(
-            "❓ Position relative de la valorisation actuelle par rapport à"
-            " l'historique complet."
-        ),
-    )
-    st.markdown(
-        f"Statut : <span"
-        f" style='color:{state_color};font-weight:bold;'>{state_txt}</span>",
-        unsafe_allow_html=True,
-    )
-
 
 # ==============================================================================
 # SECTION : COURBE DE PRÉDICTION OOS (HORIZON PERSONNALISABLE)
