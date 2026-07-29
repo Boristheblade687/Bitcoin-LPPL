@@ -213,7 +213,6 @@ def load_btc_data():
   df_cm = pd.DataFrame()
   df_yf = pd.DataFrame()
 
-  # 1. Charger CoinMetrics pour l'historique ancien (2010 -> 2014)
   try:
     url_coinmetrics = (
         "https://raw.githubusercontent.com/coinmetrics/data/master/csv/btc.csv"
@@ -225,7 +224,6 @@ def load_btc_data():
   except Exception:
     pass
 
-  # 2. Charger yfinance pour l'historique récent jusqu'à aujourd'hui
   try:
     import yfinance as yf
 
@@ -239,7 +237,6 @@ def load_btc_data():
   except Exception:
     pass
 
-  # 3. Fusion intelligente des deux sources
   if not df_cm.empty and not df_yf.empty:
     min_yf_date = df_yf["Date"].min()
     df_cm_old = df_cm[df_cm["Date"] < min_yf_date]
@@ -313,18 +310,10 @@ def f_log_model(lnT, a_val, b_val, c1_val, omega_val, p1_val, c2_val, p2_val):
 
 @st.cache_data
 def calculate_bubble_hazard_index(df_data, window=180):
-  """Calcule un indice composite de risque de bulle (0 à 100%)
-
-  basé sur la combinaison du Z-Score Power Law, de la compression de
-  volatilité et du momentum.
-  """
   d = df_data.copy()
-
-  # 1. Composante Valuation : Z-Score Power Law normalisé (capé entre 0 et 4σ)
   z_pl = d["z_score_pl"].fillna(0)
   comp_valuation = np.clip(z_pl / 4.0, 0.0, 1.0)
 
-  # 2. Composante Volatilité glissante (compression des résidus = phase critique)
   rolling_vol = d["residuals"].rolling(window=window, min_periods=30).std()
   vol_median = rolling_vol.median()
   if vol_median > 0:
@@ -335,11 +324,9 @@ def calculate_bubble_hazard_index(df_data, window=180):
   else:
     comp_vol_compression = pd.Series(0.5, index=d.index)
 
-  # 3. Composante Momentum / Accélération des prix (ROC sur 90 jours)
   price_roc = d["Close"].pct_change(90).fillna(0)
   comp_momentum = np.clip(price_roc / 2.0, 0.0, 1.0)
 
-  # Indice Composite pondéré (score de 0 à 100)
   hazard_index = (
       0.50 * comp_valuation
       + 0.25 * comp_vol_compression.values
@@ -443,7 +430,6 @@ df["residuals"] = df["actualLog"] - df["logModel"]
 res_std = np.std(df["residuals"])
 df["z_score"] = df["residuals"] / res_std if res_std > 0 else 0.0
 
-# Intégration du calcul du Bubble Hazard Rate
 df = calculate_bubble_hazard_index(df)
 current_hazard = df["Bubble_Hazard_Index"].iloc[-1]
 
@@ -721,7 +707,7 @@ fig = make_subplots(
     rows=2,
     cols=1,
     shared_xaxes=True,
-    vertical_spacing=0.08,
+    vertical_spacing=0.12,
     row_heights=[0.72, 0.28],
     subplot_titles=(
         (
@@ -811,28 +797,29 @@ if show_trend:
       row=1,
       col=1,
   )
-  fig.add_trace(
-      go.Scatter(
-          x=x_trend,
-          y=all_pl_upper,
-          mode="lines",
-          name=f"Power Law Top Band (+{pl_sigma_upper}σ)",
-          line=dict(color="#38BDF8", width=1, dash="dash"),
-      ),
-      row=1,
-      col=1,
-  )
-  fig.add_trace(
-      go.Scatter(
-          x=x_trend,
-          y=all_pl_lower,
-          mode="lines",
-          name=f"Power Law Floor Band (-{pl_sigma_lower}σ)",
-          line=dict(color="#38BDF8", width=1, dash="dash"),
-      ),
-      row=1,
-      col=1,
-  )
+
+fig.add_trace(
+    go.Scatter(
+        x=x_trend,
+        y=all_pl_upper,
+        mode="lines",
+        name=f"Power Law Top Band (+{pl_sigma_upper}σ)",
+        line=dict(color="#38BDF8", width=1, dash="dash"),
+    ),
+    row=1,
+    col=1,
+)
+fig.add_trace(
+    go.Scatter(
+        x=x_trend,
+        y=all_pl_lower,
+        mode="lines",
+        name=f"Power Law Floor Band (-{pl_sigma_lower}σ)",
+        line=dict(color="#38BDF8", width=1, dash="dash"),
+    ),
+    row=1,
+    col=1,
+)
 
 fig.add_trace(
     go.Scatter(
@@ -858,6 +845,74 @@ fig.add_trace(
     row=2,
     col=1,
 )
+
+# ==============================================================================
+# QUADRILLAGE VERTICAL & GRADUATION EN ANGLE D'OMEGA (SANS REMPLISSAGE)
+# ==============================================================================
+lnT_min_val = float(np.min(x_trend))
+lnT_max_val = float(np.max(x_trend))
+
+step_angle = np.pi / 2
+k_min = int(np.floor((omega * lnT_min_val) / step_angle))
+k_max = int(np.ceil((omega * lnT_max_val) / step_angle))
+
+for k in range(k_min, k_max + 1):
+  lnT_line = (k * step_angle) / omega
+  angle_deg = int(round(np.rad2deg(k * step_angle)) % 360)
+
+  if not log_time_axis:
+    x_val = GENESIS_DATE + timedelta(days=float(np.exp(lnT_line)))
+    if x_val < min_date or x_val > max_date + timedelta(
+        days=int(horizon_years * 365)
+    ):
+      continue
+  else:
+    x_val = lnT_line
+
+  if angle_deg in [90, 180]:
+    line_color = "rgba(255, 153, 0, 0.2)"
+    line_width = 1.2
+    line_dash = "dot"
+  elif angle_deg in [0, 270]:
+    line_color = "rgba(0, 255, 127, 0.1)"
+    line_width = 1.5
+    line_dash = "dash"
+  else:
+    is_major = (angle_deg % 180) == 0
+    line_color = (
+        "rgba(255, 153, 0, 0.45)" if is_major else "rgba(255, 153, 0, 0.15)"
+    )
+    line_width = 1.2 if is_major else 0.8
+    line_dash = "solid" if is_major else "dot"
+
+  for r in [1, 2]:
+    fig.add_vline(
+        x=x_val,
+        line_dash=line_dash,
+        line_color=line_color,
+        line_width=line_width,
+        row=r,
+        col=1,
+    )
+
+  if angle_deg in [0, 90, 180, 270]:
+    if angle_deg in [0, 270]:
+      ann_text = f"<b>{angle_deg}°</b>"
+      ann_color = "#00FF7F"
+    else:
+      ann_text = f"<b>{angle_deg}°</b>"
+      ann_color = "#FF9900"
+
+    fig.add_annotation(
+        x=x_val,
+        y=0.96,
+        yref="paper",
+        text=ann_text,
+        showarrow=False,
+        font=dict(size=8, color=ann_color),
+        xanchor="center",
+        yanchor="bottom",
+    )
 
 fig.add_hline(
     y=pl_sigma_upper,
@@ -901,10 +956,12 @@ fig.update_yaxes(type="log", title_text="Prix (USD)", row=1, col=1)
 fig.update_yaxes(title_text="Z-Score (σ)", row=2, col=1)
 
 xaxis_config = (
-    dict(title_text=xaxis_title, rangeslider=dict(visible=False))
+    dict(
+        title=dict(text=xaxis_title, standoff=40), rangeslider=dict(visible=False)
+    )
     if log_time_axis
     else dict(
-        title_text=xaxis_title,
+        title=dict(text=xaxis_title, standoff=25),
         rangeselector=dict(
             y=1.12,
             x=0.0,
@@ -922,12 +979,12 @@ fig.update_xaxes(xaxis_config)
 
 fig.update_layout(
     template="plotly_dark",
-    height=1000,
-    margin=dict(l=20, r=20, t=60, b=100),
+    height=1050,
+    margin=dict(l=20, r=20, t=100, b=150),
     legend=dict(
         orientation="h",
         yanchor="bottom",
-        y=0.29,
+        y=0.31,
         xanchor="center",
         x=0.5,
         font=dict(size=9),
@@ -936,7 +993,7 @@ fig.update_layout(
     legend2=dict(
         orientation="h",
         yanchor="top",
-        y=-0.15,
+        y=-0.22,
         xanchor="center",
         x=0.5,
         font=dict(size=9),
@@ -977,12 +1034,11 @@ with col_chart:
         * **Prix BTC (Gris)** : Cours de clôture quotidien du Bitcoin.
         * **LPPL Model (Orange)** : Courbe ajustée du modèle LPPL combinant la tendance et les oscillations. Les pointillés représentent la projection future.
         * **Power Law Fit (Bleu Cyan)** : Tendance fondamentale A + B * ln(t). Les bandes supérieure et inférieure sont calculées dynamiquement à partir des résidus via le paramètre sigma réglable.
-        * **Canaux Multi-Sigma (±1σ, ±2σ, ±3σ)** : Entonnoir de probabilité calibré empiriquement via les erreurs Walk-Forward.
+        * **Quadrillage Oméga (Lignes et angles)** : Lignes verticales et étiquettes marquant les quarts de cycle log-périodique (0°, 90°, 180°, 270°).
         * **Z-Scores (Panneau Inférieur)** : Mesures de l'écart du prix réel par rapport au modèle LPPL (en orange) et à la Power Law fondamentale (en bleu cyan) exprimés en écarts-types.
         """)
 
 with col_dash:
-  # --- Widget 1 : Live & Modèle ---
   with st.container(border=True):
     st.subheader("📌 Live & Modèle")
     if not df.empty:
@@ -1004,7 +1060,6 @@ with col_dash:
       st.metric("Prix Théorique (LPPL)", f"${current_model_price:,.2f}")
       st.metric("Z-Score LPPL", f"{current_z_score:.2f}σ")
 
-  # --- Widget 2 : Valuation ---
   with st.container(border=True):
     st.subheader("🎯 Valuation")
     st.metric(
@@ -1021,76 +1076,25 @@ with col_dash:
         unsafe_allow_html=True,
     )
 
-  # --- Widget 3 : Fit Quality & Robustesse ---
   with st.container(border=True):
     st.subheader("📊 Fit Quality & Robustesse")
 
     c_g1, c_g2 = st.columns(2)
-    c_g1.metric(
-        "R² Global",
-        f"{r2_global:.4f}",
-        help=(
-            "❓ Coefficient de détermination expliquant la variance observée"
-            " sur le dataset."
-        ),
-    )
-    c_g2.metric(
-        "R² Ajusté",
-        f"{r2_adj:.4f}",
-        help=(
-            "❓ Coefficient de détermination ajusté selon le nombre de"
-            " paramètres du modèle."
-        ),
-    )
+    c_g1.metric("R² Global", f"{r2_global:.4f}")
+    c_g2.metric("R² Ajusté", f"{r2_adj:.4f}")
 
-    st.metric(
-        "Forward R² (1Y OOS)",
-        f"{r2_oos_1y:.4f}",
-        help=(
-            "❓ Coefficient de détermination hors-échantillon (Out-Of-Sample)"
-            " évalué sur un horizon prédictif de 1 an."
-        ),
-    )
+    st.metric("Forward R² (1Y OOS)", f"{r2_oos_1y:.4f}")
 
     st.markdown("---")
     st.caption("📐 **Métriques d'Erreur & Généralisation**")
 
     c_m3, c_m4 = st.columns(2)
-    c_m3.metric(
-        "RMSE In-Sample",
-        f"{rmse_pct:.1f}%",
-        help=(
-            "❓ Erreur quadratique moyenne en pourcentage sur la période"
-            " d'entraînement."
-        ),
-    )
-    c_m4.metric(
-        "MAE In-Sample",
-        f"{mae_pct:.1f}%",
-        help=(
-            "❓ Erreur absolue moyenne en pourcentage sur la période"
-            " d'entraînement."
-        ),
-    )
+    c_m3.metric("RMSE In-Sample", f"{rmse_pct:.1f}%")
+    c_m4.metric("MAE In-Sample", f"{mae_pct:.1f}%")
 
     c_m5, c_m6 = st.columns(2)
-    c_m5.metric(
-        "OOS RMSE (1Y)",
-        f"{wf_rmse_1y_val:.1f}%",
-        help=(
-            "❓ Erreur de prédiction hors-échantillon (Out-Of-Sample) sur un"
-            " horizon de 1 an."
-        ),
-    )
-    c_m6.metric(
-        "Ratio Out/In",
-        f"{gen_ratio:.2f}x",
-        help=(
-            "❓ Ratios < 1.5x indiquent une bonne capacité de généralisation"
-            " (faible surapprentissage)."
-        ),
-    )
-
+    c_m5.metric("OOS RMSE (1Y)", f"{wf_rmse_1y_val:.1f}%")
+    c_m6.metric("Ratio Out/In", f"{gen_ratio:.2f}x")
 
 # ==============================================================================
 # SECTION : INDICATEUR DE RISQUE DE RUPTURE (HAZARD RATE / BUBBLE INDEX)
@@ -1163,90 +1167,174 @@ with col_haz2:
   )
 
 # ==============================================================================
-# SECTION : HORLOGE DE PHASE GRAVITATIONNELLE (PHASE SPACE CLOCK)
+# SECTION : LES DEUX HORLOGES DE CYCLE CÔTE À CÔTE
 # ==============================================================================
 st.markdown("---")
-st.subheader("🕒 Horloge de Phase Gravitationnelle (Dynamique Power Law)")
+st.subheader("🕒 Comparatif des Horloges de Cycle (Phase & Gravitation)")
 
-with st.expander("❓ Guide de Lecture - L'Horloge de Phase"):
-  st.markdown("""
-    * **Principe de l'Horloge** : Ce diagramme représente l'état cyclique du Bitcoin en croisant sa **position** (Z-Score Power Law sur l'axe X) et sa **vitesse de déplacement** (Momentum / Dérivée du Z-Score sur l'axe Y).
-    * **Le Mouvement Orbital** : Le marché tourne autour du centre $(0,0)$ (la Power Law parfaite) en suivant une trajectoire en spirale divisée en 4 régimes clés :
-      1. **Bas-Droite (Accumulation / Reprise)** : Le prix est sous l'attracteur central mais commence à réaccélérer.
-      2. **Haut-Droite (Bull Run / Expansion)** : Le prix dépasse l'attracteur avec une forte dynamique haussière.
-      3. **Haut-Gauche (Surchauffe / Sommet de Bulle)** : Le prix est très haut mais la vitesse s'essouffle (point critique de retournement).
-      4. **Bas-Gauche (Bear Market / Correction)** : Le prix chute lourdement vers le plancher gravitationnel.
-    * **Aiguille Actuelle (Diamant Vert)** : Indique la position exacte et la dynamique instantanée du Bitcoin aujourd'hui sur cette horloge.
-    """)
+col_clock_grav, col_clock_omega = st.columns(2)
 
-# Calcul de la vitesse du Z-score (fenêtre de 30 jours pour lisser le bruit quotidien)
-df["z_velocity"] = df["z_score_pl"].diff(30).fillna(0)
+with col_clock_grav:
+  st.markdown("##### 🌍 Horloge Gravitationnelle (Z-Score vs Momentum)")
+  with st.expander("❓ Guide (Gravitationnelle)"):
+    st.markdown("""
+        * **Axe X** : Position (Z-Score Power Law).
+        * **Axe Y** : Vitesse / Momentum (Variation du Z-Score).
+        """)
 
-fig_clock = go.Figure()
+  df["z_velocity"] = df["z_score_pl"].diff(30).fillna(0)
 
-# Trajectoire historique globale (l'orbite de l'horloge au fil du temps)
-fig_clock.add_trace(
-    go.Scatter(
-        x=df["z_score_pl"],
-        y=df["z_velocity"],
-        mode="lines+markers",
-        marker=dict(
-            size=4,
-            color=df["Days"],
-            colorscale="Inferno",
-            colorbar=dict(title="Temps (Genesis ➔ Now)", len=0.6),
-            opacity=0.7,
-        ),
-        line=dict(color="rgba(255, 153, 0, 0.3)", width=1),
-        name="Trajectoire Orbitale",
-        hovertext=df["Date"].dt.strftime("%Y-%m-%d"),
+  fig_clock = go.Figure()
+  fig_clock.add_trace(
+      go.Scatter(
+          x=df["z_score_pl"],
+          y=df["z_velocity"],
+          mode="lines+markers",
+          marker=dict(
+              size=3,
+              color=df["Days"],
+              colorscale="Inferno",
+              showscale=False,
+              opacity=0.7,
+          ),
+          line=dict(color="rgba(255, 153, 0, 0.3)", width=1),
+          name="Trajectoire",
+      )
+  )
+
+  latest_row = df.iloc[-1]
+  fig_clock.add_trace(
+      go.Scatter(
+          x=[latest_row["z_score_pl"]],
+          y=[latest_row["z_velocity"]],
+          mode="markers+text",
+          marker=dict(size=14, color="#00FF7F", symbol="diamond"),
+          text=["📍 ACTUEL"],
+          textposition="top center",
+          textfont=dict(color="#00FF7F", size=10),
+          name="Position",
+      )
+  )
+
+  fig_clock.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.3)")
+  fig_clock.add_vline(x=0, line_dash="dash", line_color="rgba(255,255,255,0.3)")
+
+  fig_clock.update_layout(
+      template="plotly_dark",
+      height=480,
+      margin=dict(l=10, r=10, t=20, b=10),
+      xaxis_title="Position (Z-Score)",
+      yaxis_title="Vitesse / Momentum",
+      showlegend=False,
+  )
+  st.plotly_chart(fig_clock, use_container_width=True)
+
+with col_clock_omega:
+  st.markdown("##### ⏱️ Horloge Log-Périodique (Phase $\\omega \\cdot \\ln(t)$)")
+  with st.expander("❓ Guide (Omega)"):
+    st.markdown("""
+        * **Cadran** : Progression angulaire $\\phi = \\omega \\cdot \\ln(t) \\pmod{2\\pi}$.
+        * **Rayon** : Compression temporelle vers la singularité.
+        """)
+
+  df["log_phase"] = omega * df["lnT"]
+  df["clock_angle"] = (df["log_phase"] % (2 * np.pi)) / (2 * np.pi) * 360
+  df["clock_radius"] = np.linspace(1, 5, len(df))
+
+  fig_clock_omega = go.Figure()
+
+  sectors = [
+      (0, 90, "rgba(255, 136, 9, 0.3)"),
+      (90, 180, "rgba(173, 20, 20, 0.3)"),
+      (180, 270, "rgba(255, 136, 9, 0.3)"),
+      (270, 360, "rgba(28, 173, 20, 0.3)"),
+  ]
+
+  for start_th, end_th, fill_col in sectors:
+    th_vals = np.linspace(start_th, end_th, 30)
+    r_inner = np.full_like(th_vals, 6.1)
+    r_outer = np.full_like(th_vals, 6.5)
+    fig_clock_omega.add_trace(
+        go.Scatterpolar(
+            r=list(r_inner) + list(r_outer[::-1]),
+            theta=list(th_vals) + list(th_vals[::-1]),
+            fill="toself",
+            fillcolor=fill_col,
+            line=dict(color="rgba(0,0,0,0)"),
+            hoverinfo="skip",
+            showlegend=False,
+        )
     )
-)
 
-# Point actuel (L'aiguille de l'horloge)
-latest_row = df.iloc[-1]
-fig_clock.add_trace(
-    go.Scatter(
-        x=[latest_row["z_score_pl"]],
-        y=[latest_row["z_velocity"]],
-        mode="markers+text",
-        marker=dict(size=16, color="#00FF7F", symbol="diamond"),
-        text=["📍 POSITION ACTUELLE"],
-        textposition="top center",
-        textfont=dict(color="#00FF7F", size=12),
-        name="Aiguille Actuelle",
+  fig_clock_omega.add_trace(
+      go.Scatterpolar(
+          r=df["clock_radius"],
+          theta=df["clock_angle"],
+          mode="lines+markers",
+          marker=dict(
+              size=3,
+              color=df["Days"],
+              colorscale="Inferno",
+              colorbar=dict(title="Temps", len=0.5),
+              opacity=0.8,
+          ),
+          line=dict(color="rgba(255, 153, 0, 0.6)", width=1.5),
+          name="Orbite",
+      )
+  )
+
+  latest_angle = df["clock_angle"].iloc[-1]
+  latest_radius = df["clock_radius"].iloc[-1]
+
+  fig_clock_omega.add_trace(
+      go.Scatterpolar(
+          r=[latest_radius],
+          theta=[latest_angle],
+          mode="markers+text",
+          marker=dict(size=14, color="#00FF7F", symbol="diamond"),
+          text=["📍 ACTUEL"],
+          textposition="top center",
+          textfont=dict(color="#00FF7F", size=10),
+          name="Position",
+      )
+  )
+
+  angles_config = [
+      (0, "#00FF7F", "solid", 1.5),
+      (90, "#FF4B4B", "solid", 1.2),
+      (180, "#FF4B4B", "solid", 1.5),
+      (270, "#00FF7F", "solid", 1.5),
+  ]
+
+  for ang, col, dash_style, w in angles_config:
+    fig_clock_omega.add_trace(
+        go.Scatterpolar(
+            r=[0, 6.5],
+            theta=[ang, ang],
+            mode="lines",
+            line=dict(color=col, width=w, dash=dash_style),
+            hoverinfo="skip",
+            showlegend=False,
+        )
     )
-)
 
-# Lignes de division des quadrants (les axes de l'horloge)
-fig_clock.add_hline(
-    y=0,
-    line_dash="dash",
-    line_color="rgba(255,255,255,0.3)",
-    annotation_text="Vitesse Nulle (Inflexion)",
-    annotation_position="bottom right",
-)
-fig_clock.add_vline(
-    x=0,
-    line_dash="dash",
-    line_color="rgba(255,255,255,0.3)",
-    annotation_text="Attracteur Power Law (0σ)",
-    annotation_position="top left",
-)
-
-fig_clock.update_layout(
-    template="plotly_dark",
-    height=550,
-    margin=dict(l=20, r=20, t=30, b=20),
-    xaxis_title="Position : Z-Score Power Law (Sous-évalué ⟷ Surévalué)",
-    yaxis_title=(
-        "Vitesse / Momentum : Variation du Z-Score (Décélération"
-        " ⟷ Accélération)"
-    ),
-    legend=dict(orientation="h", y=1.12, x=0.5, xanchor="center"),
-)
-
-st.plotly_chart(fig_clock, use_container_width=True)
+  fig_clock_omega.update_layout(
+      template="plotly_dark",
+      height=480,
+      margin=dict(l=10, r=10, t=20, b=10),
+      polar=dict(
+          radialaxis=dict(visible=False, range=[0, 6.5]),
+          angularaxis=dict(
+              direction="clockwise",
+              period=360,
+              tickmode="array",
+              tickvals=[0, 90, 180, 270],
+              ticktext=["0°", "90°", "180°", "270°"],
+          ),
+      ),
+      showlegend=False,
+  )
+  st.plotly_chart(fig_clock_omega, use_container_width=True)
 
 # ==============================================================================
 # SECTION : DISTRIBUTION EMPIRIQUE DES RÉSIDUS VS LOI DE STUDENT
@@ -1270,11 +1358,6 @@ selected_dist_label = st.selectbox(
     options=list(dist_horizon_options.keys()),
     index=3,
     key="dist_horizon_selectbox",
-    help=(
-        "❓ Permet de choisir si l'analyse de distribution et des résidus s'effectue"
-        " sur l'In-Sample global ou sur les erreurs de prédiction Out-Of-Sample"
-        " pour un horizon de forward spécifique."
-    ),
 )
 horizon_oos_eval = dist_horizon_options[selected_dist_label]
 
@@ -1307,26 +1390,14 @@ col_dist1, col_dist2 = st.columns([2, 1])
 
 with col_dist2:
   st.markdown(f"### 📐 Analyse de forme (Student-t) [{dist_mode_label}]")
-  st.markdown(f"""
-    Ce graphique superpose ({dist_mode_label}) :
-    * **L'histogramme réel** de vos erreurs de prédiction en pourcentage.
-    * **La loi de Student ajustée** (df = {df_t:.2f}).
-    
-    *L'utilisation d'une loi de Student (t-distribution) plutôt qu'une gaussienne classique permet de modéliser proprement les **fat tails** caractéristiques du Bitcoin à long terme.*
-    """)
-
-  st.metric(
-      "Degrés de liberté (Student df)",
-      f"{df_t:.2f}",
-      help=(
-          "Plus df est bas (< 30), plus les queues de distribution sont"
-          " épaisses."
-      ),
+  st.markdown(
+      f"Ce graphique superpose l'histogramme réel des erreurs de prédiction"
+      f" avec la loi de Student ajustée (df = {df_t:.2f})."
   )
+  st.metric("Degrés de liberté (Student df)", f"{df_t:.2f}")
   st.metric(
       "Kurtosis des Résidus (%)",
       f"{kurtosis(res_pct_clean):.2f}" if len(res_pct_clean) > 0 else "N/A",
-      help="Aplatissement mesuré sur la série en pourcentage.",
   )
 
 with col_dist1:
@@ -1364,7 +1435,6 @@ with col_dist1:
   else:
     st.warning("Données OOS insuffisantes pour afficher la distribution.")
 
-
 # ==============================================================================
 # SECTION : COURBE DE PRÉDICTION OOS (HORIZON PERSONNALISABLE)
 # ==============================================================================
@@ -1388,20 +1458,10 @@ st.subheader(
     f" ({current_label}) vs Prix Réel"
 )
 
-with st.expander("❓ Guide de Lecture - OOS Historique"):
-  st.markdown(f"""
-    * Ce graphique trace les projections faites par le modèle global avec un horizon fixe de **{current_label}** en amont, comparées directement au prix réel atteint à cette échéance.
-    * Il permet d'évaluer visuellement la robustesse et le biais d'anticipation du modèle sur cet horizon à travers tout l'historique du Bitcoin.
-    """)
-
 selected_oos_chart_label = st.selectbox(
     "Sélectionner l'horizon OOS pour la comparaison de prédiction",
     options=list(oos_chart_options.keys()),
     key="oos_chart_horizon_selectbox",
-    help=(
-        "❓ Permet de choisir l'horizon de prédiction Out-Of-Sample affiché dans"
-        " le graphique de comparaison."
-    ),
 )
 h_days = oos_chart_options[selected_oos_chart_label]
 
@@ -1463,7 +1523,6 @@ fig_oos_parallel.update_layout(
 )
 st.plotly_chart(fig_oos_parallel, use_container_width=True)
 
-
 # ==============================================================================
 # 9. ROLLING WALK-FORWARD & STABILITÉ TEMPORELLE
 # ==============================================================================
@@ -1474,13 +1533,7 @@ col_rwf_params, col_rwf_chart = st.columns([1, 3])
 
 with col_rwf_params:
   rwf_window = st.number_input(
-      "Taille Fenêtre Train (Jours)",
-      value=730,
-      step=180,
-      help=(
-          "❓ Nombre de jours de données utilisés pour la période"
-          " d'entraînement glissante."
-      ),
+      "Taille Fenêtre Train (Jours)", value=730, step=180
   )
 
   horizon_options = {
@@ -1495,28 +1548,11 @@ with col_rwf_params:
       options=list(horizon_options.keys()),
       index=2,
       key="horizon_test_oos_selectbox",
-      help=(
-          "❓ Choisit l'horizon de prédiction hors-échantillon testé à chaque"
-          " étape glissante."
-      ),
   )
   rwf_horizon = horizon_options[selected_horizon_label]
 
-  rwf_step = st.number_input(
-      "Pas de Glissement (Jours)",
-      value=90,
-      step=30,
-      help="❓ Pas d'avancement temporel entre chaque évaluation Walk-Forward.",
-  )
-
-  metric_choice = st.radio(
-      "Métrique d'erreur à afficher",
-      ["RMSE", "MAE"],
-      help=(
-          "❓ Choisir d'afficher la RMSE ou la MAE dans le graphique de"
-          " stabilité temporelle."
-      ),
-  )
+  rwf_step = st.number_input("Pas de Glissement (Jours)", value=90, step=30)
+  metric_choice = st.radio("Métrique d'erreur à afficher", ["RMSE", "MAE"])
 
 df_rwf = run_rolling_walk_forward(
     df,
@@ -1564,7 +1600,6 @@ with col_rwf_chart:
         " sélectionnées."
     )
 
-
 # ==============================================================================
 # SECTION : POURCENTAGE D'ERREUR RMS / OOS PAR NIVEAU DE SIGMA
 # ==============================================================================
@@ -1585,11 +1620,6 @@ selected_sigma_label = st.selectbox(
     options=list(sigma_horizon_options.keys()),
     index=3,
     key="sigma_horizon_selectbox",
-    help=(
-        "❓ Permet de choisir l'horizon In-Sample ou Out-Of-Sample"
-        " spécifiquement pour l'analyse de la contribution des erreurs par"
-        " brackets de sigma."
-    ),
 )
 horizon_sigma_eval = sigma_horizon_options[selected_sigma_label]
 
@@ -1681,12 +1711,6 @@ if sigma_res > 0:
 
   with col_sig2:
     st.markdown(f"### 📊 Analyse des Brackets Sigma ({analysis_mode_label})")
-    st.markdown("""
-        Ce graphique permet d'identifier l'origine de l'erreur globale :
-        * **Part des points (Bleu)** : Fréquence brute des écarts dans chaque tranche.
-        * **Contribution RMS/MSE (Orange)** : Poids des erreurs au carré, soulignant l'impact des valeurs extrêmes (fat tails).
-        """)
-
     df_bracket_summary = pd.DataFrame({
         "Bracket": bracket_names,
         "Points (%)": pct_points,
@@ -1695,7 +1719,6 @@ if sigma_res > 0:
     st.dataframe(df_bracket_summary, hide_index=True, use_container_width=True)
 else:
   st.info("Données insuffisantes pour calculer la répartition par sigma.")
-
 
 # ==============================================================================
 # 10. TABLEAUX DE PERFORMANCE FIXE & EXPORT CSV
@@ -1768,11 +1791,7 @@ with col_proj:
       data=csv_data,
       file_name=f"btc_lppl_projections_{last_date.strftime('%Y%m%d')}.csv",
       mime="text/csv",
-      help=(
-          "❓ Exporte le tableau des objectifs de prix futurs au format CSV."
-      ),
   )
-
 
 # ==============================================================================
 # SECTION : SIMULATEUR DE DCA INTELLIGENT (SMART DCA)
@@ -1780,16 +1799,6 @@ with col_proj:
 st.markdown("---")
 st.subheader("🤖 Simulateur de DCA Intelligent (Smart DCA - Long Terme)")
 
-with st.expander("❓ Guide de Lecture - Smart DCA", expanded=False):
-  st.markdown("""
-    * **DCA Classique** : Investissement d'un montant fixe à intervalle régulier (ex: chaque semaine ou chaque mois).
-    * **Smart DCA** : Modulation dynamique du montant en fonction de l'écart de valorisation (Z-score Power Law) :
-      * $Z < -1.0$ (Sous-évaluation) : Multiplicateur x2.0
-      * $-1.0 \le Z \le 2.0$ (Zone saine / Fair Value) : Multiplicateur x1.0
-      * $Z > 2.0$ (Surchauffe / Bulle) : Multiplicateur x0.5 (ou 0 pour suspension totale)
-    """)
-
-# Ligne 1 des paramètres DCA
 col_dca_opt1, col_dca_opt2, col_dca_opt3 = st.columns(3)
 with col_dca_opt1:
   dca_base_amount = st.number_input(
@@ -1811,13 +1820,8 @@ with col_dca_opt3:
       min_value=min_dca_date,
       max_value=max_dca_date,
       key="dca_start_date_input",
-      help=(
-          "❓ Permet de choisir à quelle date historique le premier achat DCA"
-          " est déclenché."
-      ),
   )
 
-# Ligne 2 des paramètres DCA
 col_dca_opt4, col_dca_opt5 = st.columns(2)
 with col_dca_opt4:
   dca_strategy = st.selectbox(
@@ -1833,10 +1837,7 @@ with col_dca_opt5:
       index=1,
   )
 
-# Filtrage du DataFrame à partir de la date de début choisie
 df_dca_filtered = df[df["Date"] >= pd.to_datetime(dca_start_date)].copy()
-
-# Fréquence en jours
 step_dca_days = 7 if "Hebdomadaire" in dca_freq_label else 30
 dca_sim_df = df_dca_filtered.iloc[::step_dca_days].copy()
 
@@ -1844,18 +1845,15 @@ invested_classical = 0
 btc_classical = 0
 invested_smart = 0
 btc_smart = 0
-
 dca_history = []
 
 for idx, row in dca_sim_df.iterrows():
   price = row["Close"]
   z_pl = row["z_score_pl"]
 
-  # 1. DCA Classique
   invested_classical += dca_base_amount
   btc_classical += dca_base_amount / price
 
-  # 2. Smart DCA
   current_invest = dca_base_amount
   if "Smart" in dca_strategy:
     if z_pl < -1.0:
@@ -1910,7 +1908,6 @@ if not df_dca_res.empty:
         "Performance", f"{pnl_s:+.1f}%", delta=f"{pnl_s - pnl_c:+.1f}% vs Fixe"
     )
 
-  # Graphique comparatif
   fig_smart_dca = go.Figure()
   fig_smart_dca.add_trace(
       go.Scatter(
@@ -1925,7 +1922,6 @@ if not df_dca_res.empty:
           x=df_dca_res["Date"],
           y=df_dca_res["Portfolio Smart"],
           name="Portfolio Smart DCA",
-          line=dict(color="#10B981", width=2.5),
       )
   )
   fig_smart_dca.add_trace(
@@ -1951,8 +1947,6 @@ else:
   st.warning(
       "Aucune donnée disponible à partir de la date de début sélectionnée."
   )
-
-
 # ==============================================================================
 # SECTION FINALE : SCHÉMA CONCEPTUEL (TAS DE SABLE)
 # ==============================================================================
@@ -1966,3 +1960,4 @@ st.image(
         " Bitcoin – Inspiré des travaux de Didier Sornette"
     ),
 )
+
