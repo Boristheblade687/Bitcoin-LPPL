@@ -1538,4 +1538,16 @@ with col_proj:
       ),
   )
 
-
+# ==============================================================================
+# SECTION FINALE : SCHÉMA CONCEPTUEL (TAS DE SABLE)
+# ==============================================================================
+st.markdown("---")
+st.subheader("📚 Schéma Conceptuel : Le Tas de Sable de Bitcoin & LPPL")
+st.image(
+    "tas_de_sable.png",
+    use_container_width=True,
+    caption=(
+        "Analogie du tas de sable (Self-Organized Criticality) appliquée à"
+        " Bitcoin – Inspiré des travaux de Didier Sornette"
+    ),
+)
