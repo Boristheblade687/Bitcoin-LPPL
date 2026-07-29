@@ -15,9 +15,6 @@ Export / Import: Saving and restoring model parameters in JSON format.Disclaimer
 !!!!DISCLAIMER : It does not constitute investment advice in any way.
 
 
-🛠️ Installation and Local UsageIf you want to run the application locally on your machine:Clone the repository:Bashgit clone https://github.com/Boristheblade687/Bitcoin-LPPL.git
-cd Bitcoin-LPPL
-
 
 
 \# ₿ Bitcoin PowerLaw + LPPL (2 Harmonics) - Advanced Analytics
@@ -55,20 +52,4 @@ Application web interactive développée avec \*\*Streamlit\*\* pour l'analyse q
 \---
 
 
-
-\## 🛠️ Installation et Utilisation Locale
-
-
-
-Si vous souhaitez exécuter l'application en local sur votre machine :
-
-
-
-1\. \*\*Cloner le dépôt :\*\*
-
-&#x20;  ```bash
-
-&#x20;  git clone \[https://github.com/Boristheblade687/Bitcoin-LPPL.git](https://github.com/Boristheblade687/Bitcoin-LPPL.git)
-
-&#x20;  cd Bitcoin-LPPL
 
