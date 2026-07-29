@@ -1689,6 +1689,183 @@ with col_proj:
   )
 
 # ==============================================================================
+# SECTION : SIMULATEUR DE DCA INTELLIGENT (SMART DCA)
+# ==============================================================================
+st.markdown("---")
+st.subheader("🤖 Simulateur de DCA Intelligent (Smart DCA - Long Terme)")
+
+with st.expander("❓ Guide de Lecture - Smart DCA", expanded=False):
+  st.markdown("""
+    * **DCA Classique** : Investissement d'un montant fixe à intervalle régulier (ex: chaque semaine ou chaque mois).
+    * **Smart DCA** : Modulation dynamique du montant en fonction de l'écart de valorisation (Z-score Power Law) :
+      * $Z < -1.0$ (Sous-évaluation) : Multiplicateur x2.0
+      * $-1.0 \le Z \le 2.0$ (Zone saine / Fair Value) : Multiplicateur x1.0
+      * $Z > 2.0$ (Surchauffe / Bulle) : Multiplicateur x0.5 (ou 0 pour suspension totale)
+    """)
+
+# Ligne 1 des paramètres DCA
+col_dca_opt1, col_dca_opt2, col_dca_opt3 = st.columns(3)
+with col_dca_opt1:
+  dca_base_amount = st.number_input(
+      "Montant de base ($)", value=100.0, step=50.0, key="dca_base_amt"
+  )
+with col_dca_opt2:
+  dca_freq_label = st.selectbox(
+      "Fréquence d'achat",
+      ["Hebdomadaire (7j)", "Mensuel (30j)"],
+      index=1,
+      key="dca_freq_sel",
+  )
+with col_dca_opt3:
+  min_dca_date = raw_df["Date"].min().to_pydatetime()
+  max_dca_date = raw_df["Date"].max().to_pydatetime()
+  dca_start_date = st.date_input(
+      "Date de début du DCA",
+      value=min_dca_date,
+      min_value=min_dca_date,
+      max_value=max_dca_date,
+      key="dca_start_date_input",
+      help=(
+          "❓ Permet de choisir à quelle date historique le premier achat DCA"
+          " est déclenché."
+      ),
+  )
+
+# Ligne 2 des paramètres DCA
+col_dca_opt4, col_dca_opt5 = st.columns(2)
+with col_dca_opt4:
+  dca_strategy = st.selectbox(
+      "Stratégie DCA",
+      ["Smart DCA (Modulation Z-Score)", "DCA Classique (Fixe)"],
+      index=0,
+      key="dca_strat_sel",
+  )
+with col_dca_opt5:
+  overheat_action = st.selectbox(
+      "Action en Zone de Bulle ($Z > 2.0$)",
+      ["Réduire de moitié (0.5x)", "Suspendre les achats (0x)"],
+      index=1,
+  )
+
+# Filtrage du DataFrame à partir de la date de début choisie
+df_dca_filtered = df[df["Date"] >= pd.to_datetime(dca_start_date)].copy()
+
+# Fréquence en jours
+step_dca_days = 7 if "Hebdomadaire" in dca_freq_label else 30
+dca_sim_df = df_dca_filtered.iloc[::step_dca_days].copy()
+
+invested_classical = 0
+btc_classical = 0
+invested_smart = 0
+btc_smart = 0
+
+dca_history = []
+
+for idx, row in dca_sim_df.iterrows():
+  price = row["Close"]
+  z_pl = row["z_score_pl"]
+
+  # 1. DCA Classique
+  invested_classical += dca_base_amount
+  btc_classical += dca_base_amount / price
+
+  # 2. Smart DCA
+  current_invest = dca_base_amount
+  if "Smart" in dca_strategy:
+    if z_pl < -1.0:
+      current_invest = dca_base_amount * 2.0
+    elif z_pl > 2.0:
+      if "Suspendre" in overheat_action:
+        current_invest = 0.0
+      else:
+        current_invest = dca_base_amount * 0.5
+
+  invested_smart += current_invest
+  btc_smart += current_invest / price if price > 0 else 0
+
+  val_classical = btc_classical * price
+  val_smart = btc_smart * price
+
+  dca_history.append({
+      "Date": row["Date"],
+      "Investi Classique": invested_classical,
+      "Portfolio Classique": val_classical,
+      "Investi Smart": invested_smart,
+      "Portfolio Smart": val_smart,
+  })
+
+df_dca_res = pd.DataFrame(dca_history)
+
+if not df_dca_res.empty:
+  last_row = df_dca_res.iloc[-1]
+
+  fin_inv_c = last_row["Investi Classique"]
+  fin_val_c = last_row["Portfolio Classique"]
+  pnl_c = ((fin_val_c - fin_inv_c) / fin_inv_c) * 100 if fin_inv_c > 0 else 0
+
+  fin_inv_s = last_row["Investi Smart"]
+  fin_val_s = last_row["Portfolio Smart"]
+  pnl_s = ((fin_val_s - fin_inv_s) / fin_inv_s) * 100 if fin_inv_s > 0 else 0
+
+  col_res1, col_res2 = st.columns(2)
+  with col_res1:
+    st.markdown("### 📊 DCA Classique (Fixe)")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Total Investi", f"${fin_inv_c:,.0f}")
+    c2.metric("Valeur Portefeuille", f"${fin_val_c:,.0f}")
+    c3.metric("Performance", f"{pnl_c:+.1f}%")
+
+  with col_res2:
+    st.markdown("### 🧠 Smart DCA (Basé sur Power Law)")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Total Investi", f"${fin_inv_s:,.0f}")
+    c2.metric("Valeur Portefeuille", f"${fin_val_s:,.0f}")
+    c3.metric(
+        "Performance", f"{pnl_s:+.1f}%", delta=f"{pnl_s - pnl_c:+.1f}% vs Fixe"
+    )
+
+  # Graphique comparatif
+  fig_smart_dca = go.Figure()
+  fig_smart_dca.add_trace(
+      go.Scatter(
+          x=df_dca_res["Date"],
+          y=df_dca_res["Portfolio Classique"],
+          name="Portfolio DCA Classique",
+          line=dict(color="#9CA3AF", width=1.5, dash="dash"),
+      )
+  )
+  fig_smart_dca.add_trace(
+      go.Scatter(
+          x=df_dca_res["Date"],
+          y=df_dca_res["Portfolio Smart"],
+          name="Portfolio Smart DCA",
+          line=dict(color="#10B981", width=2.5),
+      )
+  )
+  fig_smart_dca.add_trace(
+      go.Scatter(
+          x=df_dca_res["Date"],
+          y=df_dca_res["Investi Smart"],
+          name="Capital Total Investi (Smart)",
+          line=dict(color="#38BDF8", width=1, dash="dot"),
+      )
+  )
+
+  fig_smart_dca.update_layout(
+      template="plotly_dark",
+      height=400,
+      margin=dict(l=20, r=20, t=30, b=20),
+      yaxis_type="log",
+      yaxis_title="USD (Échelle Log)",
+      xaxis_title="Date",
+      legend=dict(orientation="h", y=1.12, x=0.5, xanchor="center"),
+  )
+  st.plotly_chart(fig_smart_dca, use_container_width=True)
+else:
+  st.warning(
+      "Aucune donnée disponible à partir de la date de début sélectionnée."
+  )
+# ==============================================================================
 # SECTION FINALE : SCHÉMA CONCEPTUEL (TAS DE SABLE)
 # ==============================================================================
 st.markdown("---")
