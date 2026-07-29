@@ -99,7 +99,7 @@ pl_sigma = st.sidebar.slider(
     "Écart-type (σ) Power Law",
     min_value=0.5,
     max_value=4.0,
-    value=1.5,
+    value=1.8,
     step=0.1,
     help=(
         "❓ Multiplicateur d'écart-type (σ) appliqué aux résidus pour tracer"
@@ -210,35 +210,50 @@ with st.sidebar.expander("🌊 Harmoniques LPPL", expanded=True):
 # ==============================================================================
 @st.cache_data(ttl=3600)
 def load_btc_data():
-  df = pd.DataFrame()
-  try:
-    import yfinance as yf
+  df_cm = pd.DataFrame()
+  df_yf = pd.DataFrame()
 
-    # Téléchargement direct et propre via Yahoo Finance
-    df_raw = yf.download("BTC-USD", start="2009-01-03", progress=False)
-    if not df_raw.empty:
-      if isinstance(df_raw.columns, pd.MultiIndex):
-        df_raw = df_raw.droplevel(1, axis=1)
-      df = df_raw.reset_index()
-      df = df.rename(columns={"Date": "Date", "Close": "Close"})
-      df = df[["Date", "Close"]].dropna()
+  # 1. Charger CoinMetrics pour l'historique ancien (2010 -> 2014)
+  try:
+    url_coinmetrics = (
+        "https://raw.githubusercontent.com/coinmetrics/data/master/csv/btc.csv"
+    )
+    df_raw_cm = pd.read_csv(url_coinmetrics)
+    df_cm["Date"] = pd.to_datetime(df_raw_cm["time"])
+    df_cm["Close"] = pd.to_numeric(df_raw_cm["PriceUSD"], errors="coerce")
+    df_cm = df_cm.dropna(subset=["Close"])
   except Exception:
     pass
 
-  # Fallback sur CoinMetrics si yfinance échoue
-  if df.empty:
-    try:
-      url_coinmetrics = (
-          "https://raw.githubusercontent.com/coinmetrics/data/master/csv/btc.csv"
-      )
-      df_raw = pd.read_csv(url_coinmetrics)
-      df = pd.DataFrame()
-      df["Date"] = pd.to_datetime(df_raw["time"])
-      df["Close"] = pd.to_numeric(df_raw["PriceUSD"], errors="coerce")
-      df = df.dropna(subset=["Close"])
-    except Exception as e:
-      st.error(f"Erreur lors du chargement des données historiques : {e}")
-      st.stop()
+  # 2. Charger yfinance pour l'historique récent jusqu'à aujourd'hui
+  try:
+    import yfinance as yf
+
+    df_raw_yf = yf.download("BTC-USD", start="2009-01-03", progress=False)
+    if not df_raw_yf.empty:
+      if isinstance(df_raw_yf.columns, pd.MultiIndex):
+        df_raw_yf = df_raw_yf.droplevel(1, axis=1)
+      df_yf = df_raw_yf.reset_index()
+      df_yf = df_yf.rename(columns={"Date": "Date", "Close": "Close"})
+      df_yf = df_yf[["Date", "Close"]].dropna()
+  except Exception:
+    pass
+
+  # 3. Fusion intelligente des deux sources
+  if not df_cm.empty and not df_yf.empty:
+    # On prend CoinMetrics pour tout ce qui est avant le début de yfinance
+    min_yf_date = df_yf["Date"].min()
+    df_cm_old = df_cm[df_cm["Date"] < min_yf_date]
+    df = pd.concat([df_cm_old, df_yf], ignore_index=True)
+  elif not df_yf.empty:
+    df = df_yf
+  elif not df_cm.empty:
+    df = df_cm
+  else:
+    st.error(
+        "Erreur critique : Impossible de charger les données historiques."
+    )
+    st.stop()
 
   df = (
       df[df["Close"] > 0]
