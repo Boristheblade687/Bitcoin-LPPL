@@ -99,7 +99,7 @@ pl_sigma = st.sidebar.slider(
     "Écart-type (σ) Power Law",
     min_value=0.5,
     max_value=4.0,
-    value=1.8,
+    value=1.6,
     step=0.1,
     help=(
         "❓ Multiplicateur d'écart-type (σ) appliqué aux résidus pour tracer"
