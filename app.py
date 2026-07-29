@@ -154,7 +154,7 @@ with st.sidebar.expander("🎛️ Options du Modèle & Affichage", expanded=True
   )
   log_time_axis = st.checkbox(
       "Échelle de Temps Logarithmique (ln(t) sur l'Axe X)",
-      value=False,
+      value=True,
       help=(
           "❓ Permet de basculer l'axe X des graphiques entre le temps linéaire"
           " calendaire (Date) et le logarithme du temps (ln(t))."
