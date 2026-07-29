@@ -17,28 +17,7 @@ st.set_page_config(
     layout="wide",
     page_icon="₿",
 )
-
-# ==============================================================================
-# GESTION DE LA LANGUE / LANGUAGE SELECTION
-# ==============================================================================
-if "lang" not in st.session_state:
-  st.session_state["lang"] = "Français"
-
-lang = st.sidebar.selectbox(
-    "🌍 Langue / Language", ["Français", "English"], key="lang"
-)
-
-
-def t(fr, en):
-  return en if lang == "English" else fr
-
-
-st.title(
-    t(
-        "₿ Bitcoin PowerLaw + LPPL (2 Harmonics) - Analyses Avancées",
-        "₿ Bitcoin PowerLaw + LPPL (2 Harmonics) - Advanced Analytics",
-    )
-)
+st.title("₿ Bitcoin PowerLaw + LPPL (2 Harmonics) - Advanced Analytics")
 
 # Initialisation des variables dans le Session State
 DEFAULT_PARAMS = {
@@ -62,30 +41,24 @@ GENESIS_DATE = pd.to_datetime("2009-01-03")
 # ==============================================================================
 # 1. PARAMÈTRES ET INPUTS (SIDEBAR & CONFIGURATION)
 # ==============================================================================
-st.sidebar.header(t("⚙️ Paramètres du Modèle", "⚙️ Model Parameters"))
+st.sidebar.header("⚙️ Paramètres du Modèle")
 
 # Avertissement légal
 st.sidebar.warning(
-    t(
-        "⚠️ **Avertissement :** Ce modèle est conçu exclusivement à des fins de"
-        " recherche et de modélisation statistique à long terme. Il ne constitue"
-        " en aucun cas un conseil en investissement.",
-        "⚠️ **Disclaimer:** This model is designed exclusively for long-term"
-        " statistical research and modeling purposes. It does not constitute"
-        " investment advice.",
-    )
+    "⚠️ **Avertissement :** Ce modèle est conçu exclusivement à des fins de"
+    " recherche et de modélisation statistique à long terme. Il ne constitue"
+    " en aucun cas un conseil en investissement."
 )
 
 # --- GESTION DES CONFIGURATIONS JSON (CHARGEMENT & SAUVEGARDE) ---
-st.sidebar.subheader(t("📁 Gestion de Configuration", "📁 Configuration Management"))
+st.sidebar.subheader("📁 Gestion de Configuration")
 
 uploaded_file = st.sidebar.file_uploader(
-    t("Charger Config (JSON)", "Load Config (JSON)"),
+    "Charger Config (JSON)",
     type=["json"],
-    help=t(
+    help=(
         "❓ Restaurez une configuration de paramètres précédemment sauvegardée"
-        " au format JSON.",
-        "❓ Restore a previously saved parameter configuration in JSON format.",
+        " au format JSON."
     ),
 )
 if uploaded_file is not None:
@@ -94,198 +67,141 @@ if uploaded_file is not None:
     for k_cfg, v_cfg in loaded_cfg.items():
       if k_cfg in DEFAULT_PARAMS:
         st.session_state[k_cfg] = float(v_cfg)
-    st.sidebar.success(
-        t(
-            "Configuration chargée avec succès !",
-            "Configuration loaded successfully!",
-        )
-    )
+    st.sidebar.success("Configuration chargée avec succès !")
   except Exception as e:
-    st.sidebar.error(
-        f"{t('Erreur de lecture du JSON', 'Error reading JSON')}: {e}"
-    )
+    st.sidebar.error(f"Erreur de lecture du JSON : {e}")
 
 config_dict = {k: st.session_state[k] for k in DEFAULT_PARAMS.keys()}
 st.sidebar.download_button(
-    t("💾 Sauvegarder Config (JSON)", "💾 Save Config (JSON)"),
+    "💾 Sauvegarder Config (JSON)",
     data=json.dumps(config_dict, indent=2),
     file_name="lppl_params.json",
     mime="application/json",
-    help=t(
-        "❓ Exporte vos paramètres actuels sous forme de fichier JSON.",
-        "❓ Exports your current parameters as a JSON file.",
-    ),
+    help="❓ Exporte vos paramètres actuels sous forme de fichier JSON.",
 )
 
 st.sidebar.markdown("---")
 
 horizon_years = st.sidebar.slider(
-    t("🔮 Horizon de Projection (Années)", "🔮 Projection Horizon (Years)"),
+    "🔮 Horizon de Projection (Années)",
     min_value=1,
     max_value=3,
     value=3,
     step=1,
-    help=t(
+    help=(
         "❓ Définit le nombre d'années dans le futur sur lesquelles étendre"
-        " les courbes de projection LPPL et Power Law.",
-        "❓ Defines the number of years in the future to extend LPPL and Power"
-        " Law projection curves.",
+        " les courbes de projection LPPL et Power Law."
     ),
 )
 
-st.sidebar.markdown(
-    t(
-        "📊 **Bandes Power Law (Écart-type σ)**",
-        "📊 **Power Law Bands (Standard Deviation σ)**",
-    )
-)
+st.sidebar.markdown("📊 **Bandes Power Law (Écart-type σ)**")
 pl_sigma = st.sidebar.slider(
-    t("Écart-type (σ) Power Law", "Power Law Standard Deviation (σ)"),
+    "Écart-type (σ) Power Law",
     min_value=0.5,
     max_value=4.0,
     value=1.5,
     step=0.1,
-    help=t(
+    help=(
         "❓ Multiplicateur d'écart-type (σ) appliqué aux résidus pour tracer"
-        " les bandes supérieure et inférieure Power Law.",
-        "❓ Standard deviation multiplier (σ) applied to residuals to plot"
-        " Power Law upper and lower bands.",
+        " les bandes supérieure et inférieure Power Law."
     ),
 )
 pl_sigma_upper = pl_sigma
 pl_sigma_lower = pl_sigma
 
-with st.sidebar.expander(
-    t("📌 Power Law (Tendance Fondamentale)", "📌 Power Law (Fundamental Trend)"),
-    expanded=True,
-):
+with st.sidebar.expander("📌 Power Law (Tendance Fondamentale)", expanded=True):
   st.caption(
-      t(
-          "Ajuste la tendance logarithmique fondamentale du prix (Prix = exp(A +"
-          " B * ln(t))).",
-          "Adjusts the fundamental logarithmic price trend (Price = exp(A + B *"
-          " ln(t))).",
-      )
+      "Ajuste la tendance logarithmique fondamentale du prix (Prix = exp(A +"
+      " B * ln(t)))."
   )
   A = st.number_input(
-      t("A (Ordonnée à l'origine)", "A (Intercept)"),
+      "A (Ordonnée à l'origine)",
       value=st.session_state["A"],
       step=0.01,
       key="input_A",
-      help=t(
+      help=(
           "❓ L'intercepte logarithmique de la loi de puissance. Fixe le niveau"
-          " de départ à t=1.",
-          "❓ The logarithmic intercept of the power law. Sets the starting"
-          " level at t=1.",
+          " de départ à t=1."
       ),
   )
   B = st.number_input(
-      t("B (Pente / Exposant)", "B (Slope / Exponent)"),
+      "B (Pente / Exposant)",
       value=st.session_state["B"],
       step=0.001,
       key="input_B",
-      help=t(
+      help=(
           "❓ La pente de la loi de puissance (exposant de croissance dans le"
-          " temps).",
-          "❓ The slope of the power law (growth exponent over time).",
+          " temps)."
       ),
   )
 
-with st.sidebar.expander(
-    t("🎛️ Options du Modèle & Affichage", "🎛️ Model Options & Display"),
-    expanded=True,
-):
+with st.sidebar.expander("🎛️ Options du Modèle & Affichage", expanded=True):
   show_trend = st.checkbox(
-      t("Afficher la Tendance (Power Law)", "Show Trend (Power Law)"),
+      "Afficher la Tendance (Power Law)",
       value=True,
-      help=t(
+      help=(
           "❓ Affiche la ligne de tendance fondamentale Power Law ainsi que son"
-          " canal supérieur et inférieur.",
-          "❓ Displays the fundamental Power Law trend line along with its upper"
-          " and lower channel.",
+          " canal supérieur et inférieur."
       ),
   )
   show_lppl = st.checkbox(
-      t("Afficher la Courbe LPPL", "Show LPPL Curve"),
+      "Afficher la Courbe LPPL",
       value=True,
-      help=t(
+      help=(
           "❓ Affiche la courbe modèle LPPL ajustée (avec oscillations) et ses"
-          " projections futures.",
-          "❓ Displays the fitted LPPL model curve (with oscillations) and its"
-          " future projections.",
+          " projections futures."
       ),
   )
   log_time_axis = st.checkbox(
-      t(
-          "Échelle de Temps Logarithmique (ln(t) sur l'Axe X)",
-          "Logarithmic Time Scale (ln(t) on X-Axis)",
-      ),
+      "Échelle de Temps Logarithmique (ln(t) sur l'Axe X)",
       value=False,
-      help=t(
+      help=(
           "❓ Permet de basculer l'axe X des graphiques entre le temps linéaire"
-          " calendaire (Date) et le logarithme du temps (ln(t)).",
-          "❓ Switches the X-axis between calendar linear time (Date) and"
-          " logarithmic time (ln(t)).",
+          " calendaire (Date) et le logarithme du temps (ln(t))."
       ),
   )
 
-with st.sidebar.expander(
-    t("🌊 Harmoniques LPPL", "🌊 LPPL Harmonics"), expanded=True
-):
-  st.markdown(t("**Harmonic 1 (Macro Cycle)**", "**Harmonic 1 (Macro Cycle)**"))
+with st.sidebar.expander("🌊 Harmoniques LPPL", expanded=True):
+  st.markdown("**Harmonic 1 (Macro Cycle)**")
   C1 = st.number_input(
-      t("Amplitude H1 (C1)", "H1 Amplitude (C1)"),
+      "Amplitude H1 (C1)",
       value=st.session_state["C1"],
       step=0.01,
       key="input_C1",
-      help=t(
-          "❓ Amplitude de la première oscillation log-périodique majeure.",
-          "❓ Amplitude of the first major log-periodic oscillation.",
-      ),
+      help="❓ Amplitude de la première oscillation log-périodique majeure.",
   )
   omega = st.number_input(
-      t("Omega (ω) - Fréquence", "Omega (ω) - Frequency"),
+      "Omega (ω) - Fréquence",
       value=st.session_state["omega"],
       step=0.001,
       key="input_omega",
-      help=t(
+      help=(
           "❓ Fréquence angulaire log-périodique. Détermine la vitesse à"
-          " laquelle les cycles se compressent au fil du temps.",
-          "❓ Log-periodic angular frequency. Determines the rate at which"
-          " cycles compress over time.",
+          " laquelle les cycles se compressent au fil du temps."
       ),
   )
   phi1 = st.number_input(
-      t("Phase H1 (φ1)", "H1 Phase (φ1)"),
+      "Phase H1 (φ1)",
       value=st.session_state["phi1"],
       step=0.01,
       key="input_phi1",
-      help=t(
-          "❓ Décalage temporel de la première onde harmonique.",
-          "❓ Time shift of the first harmonic wave.",
-      ),
+      help="❓ Décalage temporel de la première onde harmonique.",
   )
 
-  st.markdown(t("**Harmonic 2 (Micro Cycle)**", "**Harmonic 2 (Micro Cycle)**"))
+  st.markdown("**Harmonic 2 (Micro Cycle)**")
   C2 = st.number_input(
-      t("Amplitude H2 (C2)", "H2 Amplitude (C2)"),
+      "Amplitude H2 (C2)",
       value=st.session_state["C2"],
       step=0.01,
       key="input_C2",
-      help=t(
-          "❓ Amplitude des oscillations secondaires (sous-cycles).",
-          "❓ Amplitude of secondary oscillations (sub-cycles).",
-      ),
+      help="❓ Amplitude des oscillations secondaires (sous-cycles).",
   )
   phi2 = st.number_input(
-      t("Phase H2 (φ2)", "H2 Phase (φ2)"),
+      "Phase H2 (φ2)",
       value=st.session_state["phi2"],
       step=0.01,
       key="input_phi2",
-      help=t(
-          "❓ Décalage temporel de la seconde onde harmonique.",
-          "❓ Time shift of the second harmonic wave.",
-      ),
+      help="❓ Décalage temporel de la seconde onde harmonique.",
   )
 
 
@@ -324,13 +240,7 @@ def load_btc_data():
       df["Date"] = pd.to_datetime(df_binance[0], unit="ms")
       df["Close"] = pd.to_numeric(df_binance[4], errors="coerce")
     except Exception as e:
-      st.error(
-          t(
-              "Erreur lors du chargement des données historiques",
-              "Error loading historical data",
-          )
-          + f": {e}"
-      )
+      st.error(f"Erreur lors du chargement des données historiques : {e}")
       st.stop()
 
   df = df[df["Close"] > 0].reset_index(drop=True)
@@ -343,19 +253,18 @@ def load_btc_data():
 
 raw_df = load_btc_data()
 
-st.sidebar.subheader(t("📅 Période d'Entraînement", "📅 Training Period"))
+st.sidebar.subheader("📅 Période d'Entraînement")
 min_date = raw_df["Date"].min().to_pydatetime()
 max_date = raw_df["Date"].max().to_pydatetime()
 
 selected_dates = st.sidebar.date_input(
-    t("Plage de dates d'analyse", "Analysis Date Range"),
+    "Plage de dates d'analyse",
     value=(min_date, max_date),
     min_value=min_date,
     max_value=max_date,
-    help=t(
+    help=(
         "❓ Restreint les données sur lesquelles le modèle est calibré et"
-        " évalué.",
-        "❓ Restricts the data on which the model is calibrated and evaluated.",
+        " évalué."
     ),
 )
 
@@ -369,12 +278,7 @@ else:
   df = raw_df.copy()
 
 if df.empty:
-  st.warning(
-      t(
-          "Aucune donnée disponible pour la plage sélectionnée.",
-          "No data available for the selected range.",
-      )
-  )
+  st.warning("Aucune donnée disponible pour la plage sélectionnée.")
   st.stop()
 
 
@@ -396,15 +300,13 @@ def f_log_model(lnT, a_val, b_val, c1_val, omega_val, p1_val, c2_val, p2_val):
 # 4. OPTIMISATION GLOBALE AUTOMATIQUE (DIFFERENTIAL EVOLUTION)
 # ==============================================================================
 st.sidebar.markdown("---")
-st.sidebar.subheader(t("🎯 Calibrage Automatique", "🎯 Automatic Calibration"))
+st.sidebar.subheader("🎯 Calibrage Automatique")
 
 if st.sidebar.button(
-    t("🤖 Ajuster les paramètres au dataset", "🤖 Fit Parameters to Dataset"),
-    help=t(
+    "🤖 Ajuster les paramètres au dataset",
+    help=(
         "❓ Lance l'optimisation globale (Differential Evolution) pour estimer"
-        " les paramètres de manière robuste.",
-        "❓ Runs global optimization (Differential Evolution) to robustly"
-        " estimate parameters.",
+        " les paramètres de manière robuste."
     ),
 ):
   lnT_vec = df["lnT"].to_numpy()
@@ -428,10 +330,7 @@ if st.sidebar.button(
   ]
 
   with st.spinner(
-      t(
-          "Optimisation globale en cours (Recherche globale + Polish)...",
-          "Global optimization in progress (Global Search + Polish)...",
-      )
+      "Optimisation globale en cours (Recherche globale + Polish)..."
   ):
     res = differential_evolution(
         loss_func_fast,
@@ -459,14 +358,10 @@ if st.sidebar.button(
     )
     st.rerun()
   else:
-    st.sidebar.error(
-        t(
-            "L'optimisation globale a échoué.", "Global optimization failed."
-        )
-    )
+    st.sidebar.error("L'optimisation globale a échoué.")
 
 if "opt_msg" in st.session_state:
-  st.sidebar.success(t("Ajustement réussi !", "Fitting successful!"))
+  st.sidebar.success("Ajustement réussi !")
   st.sidebar.info(st.session_state["opt_msg"])
 
 
@@ -512,15 +407,15 @@ ratio_percentile = (ratio_history <= ratio_history.iloc[-1]).mean() * 100.0
 
 def get_market_state(score):
   if score < 10:
-    return t("Valeur Extrême", "Extreme Value"), "#00FF00"
+    return "Extreme Value", "#00FF00"
   elif score < 25:
-    return t("Sous-évalué", "Undervalued"), "#008000"
+    return "Undervalued", "#008000"
   elif score < 75:
-    return t("Juste Valeur", "Fair Value"), "#FFA500"
+    return "Fair Value", "#FFA500"
   elif score < 90:
-    return t("Surévalué", "Overvalued"), "#FF0000"
+    return "Overvalued", "#FF0000"
   else:
-    return t("Bulle Extrême", "Extreme Bubble"), "#FF00FF"
+    return "Extreme Bubble", "#FF00FF"
 
 
 state_txt, state_color = get_market_state(ratio_percentile)
@@ -657,7 +552,7 @@ def run_rolling_walk_forward(
 
       eval_date = pd.to_datetime(dates[train_end_idx - 1])
       results.append({
-          t("Date Evaluation", "Evaluation Date"): eval_date,
+          "Date Evaluation": eval_date,
           "RMSE Out-Of-Sample (%)": rmse_wf,
           "MAE Out-Of-Sample (%)": mae_wf,
       })
@@ -736,10 +631,7 @@ if log_time_axis:
   x_trend = df["lnT"].tolist() + list(future_lnT_arr)
   x_proj = [df["lnT"].iloc[-1]] + list(future_lnT_arr)
   x_lppl_all = df["lnT"].tolist() + list(future_lnT_arr)
-  xaxis_title = t(
-      "Logarithme du Temps (ln(t) depuis le Genesis)",
-      "Logarithmic Time (ln(t) since Genesis)",
-  )
+  xaxis_title = "Logarithme du Temps (ln(t) depuis le Genesis)"
   custom_hover = df["Date"].dt.strftime("%Y-%m-%d").values
   fut_hover = [d.strftime("%Y-%m-%d") for d in future_dates_arr]
   all_hover = df["Date"].dt.strftime("%Y-%m-%d").tolist() + fut_hover
@@ -748,7 +640,7 @@ else:
   x_trend = df["Date"].tolist() + future_dates_arr
   x_proj = [df["Date"].iloc[-1]] + future_dates_arr
   x_lppl_all = df["Date"].tolist() + future_dates_arr
-  xaxis_title = t("Date", "Date")
+  xaxis_title = "Date"
 
 all_pl_trend = df["trendPrice"].tolist() + list(future_pl_trend)
 all_pl_upper = df["trendUpperPrice"].tolist() + list(future_pl_upper)
@@ -765,22 +657,12 @@ fig = make_subplots(
     row_heights=[0.72, 0.28],
     subplot_titles=(
         (
-            t(
-                "Prix & Projections Avancées LPPL (Échelle Logarithmique du"
-                " Temps ln(t))",
-                "Price & Advanced LPPL Projections (Logarithmic Time Scale"
-                " ln(t))",
-            )
+            "Prix & Projections Avancées LPPL (Échelle Logarithmique du Temps"
+            " ln(t))"
             if log_time_axis
-            else t(
-                "Prix & Projections Avancées LPPL (Temps Linéaire / Date)",
-                "Price & Advanced LPPL Projections (Linear Time / Date)",
-            )
+            else "Prix & Projections Avancées LPPL (Temps Linéaire / Date)"
         ),
-        t(
-            "Analyse des Résidus (Z-Scores LPPL & Power Law)",
-            "Residual Analysis (LPPL & Power Law Z-Scores)",
-        ),
+        "Analyse des Résidus (Z-Scores LPPL & Power Law)",
     ),
 )
 
@@ -789,7 +671,7 @@ fig.add_trace(
         x=x_hist,
         y=df["Close"],
         mode="lines",
-        name=t("Prix BTC", "BTC Price"),
+        name="Prix BTC",
         line=dict(color="#D1D5DB", width=1.2),
     ),
     row=1,
@@ -798,16 +680,8 @@ fig.add_trace(
 
 if show_lppl:
   sigma_levels = [
-      {
-          "mult": 1.0,
-          "opacity": 0.18,
-          "name": t("Canal ±1.0σ (68%)", "±1.0σ Channel (68%)"),
-      },
-      {
-          "mult": 2.0,
-          "opacity": 0.10,
-          "name": t("Canal ±2.0σ (95%)", "±2.0σ Channel (95%)"),
-      },
+      {"mult": 1.0, "opacity": 0.18, "name": "Canal ±1.0σ (68%)"},
+      {"mult": 2.0, "opacity": 0.10, "name": "Canal ±2.0σ (95%)"},
   ]
 
   for band in sigma_levels:
@@ -839,7 +713,7 @@ if show_lppl:
           x=x_hist,
           y=df["modelPrice"],
           mode="lines",
-          name=t("LPPL Model (Fit)", "LPPL Model (Fit)"),
+          name="LPPL Model (Fit)",
           line=dict(color="#FF9900", width=2),
       ),
       row=1,
@@ -850,7 +724,7 @@ if show_lppl:
           x=x_proj,
           y=proj_lppl,
           mode="lines",
-          name=t("LPPL Projection Centrale", "Central LPPL Projection"),
+          name="LPPL Projection Centrale",
           line=dict(color="#FF9900", width=2.5, dash="dash"),
       ),
       row=1,
@@ -863,7 +737,7 @@ if show_trend:
           x=x_trend,
           y=all_pl_trend,
           mode="lines",
-          name=t("Power Law Trend", "Power Law Trend"),
+          name="Power Law Trend",
           line=dict(color="#00BFFF", width=1.5),
       ),
       row=1,
@@ -897,7 +771,7 @@ fig.add_trace(
         x=x_hist,
         y=df["z_score"],
         mode="lines",
-        name=t("Z-Score LPPL", "LPPL Z-Score"),
+        name="Z-Score LPPL",
         line=dict(color="#FF9900", width=1.2),
         legend="legend2",
     ),
@@ -909,7 +783,7 @@ fig.add_trace(
         x=x_hist,
         y=df["z_score_pl"],
         mode="lines",
-        name=t("Z-Score Power Law", "Power Law Z-Score"),
+        name="Z-Score Power Law",
         line=dict(color="#00BFFF", width=1.5),
         legend="legend2",
     ),
@@ -955,8 +829,8 @@ fig.add_hline(
 )
 fig.add_hline(y=0.0, line_dash="solid", line_color="gray", row=2, col=1)
 
-fig.update_yaxes(type="log", title_text=t("Prix (USD)", "Price (USD)"), row=1, col=1)
-fig.update_yaxes(title_text=t("Z-Score (σ)", "Z-Score (σ)"), row=2, col=1)
+fig.update_yaxes(type="log", title_text="Prix (USD)", row=1, col=1)
+fig.update_yaxes(title_text="Z-Score (σ)", row=2, col=1)
 
 xaxis_config = (
     dict(title_text=xaxis_title, rangeslider=dict(visible=False))
@@ -1030,69 +904,39 @@ col_chart, col_dash = st.columns([3.2, 1])
 
 with col_chart:
   st.plotly_chart(fig, use_container_width=True)
-  with st.expander(
-      t(
-          "❓ Guide de Lecture du Graphique Principal",
-          "❓ Main Chart Reading Guide",
-      )
-  ):
-    st.markdown(
-        t(
-            """
+  with st.expander("❓ Guide de Lecture du Graphique Principal"):
+    st.markdown("""
         * **Prix BTC (Gris)** : Cours de clôture quotidien du Bitcoin.
         * **LPPL Model (Orange)** : Courbe ajustée du modèle LPPL combinant la tendance et les oscillations. Les pointillés représentent la projection future.
         * **Power Law Fit (Bleu Cyan)** : Tendance fondamentale A + B * ln(t). Les bandes supérieure et inférieure sont calculées dynamiquement à partir des résidus via le paramètre sigma réglable.
         * **Canaux Multi-Sigma (±1σ, ±2σ, ±3σ)** : Entonnoir de probabilité calibré empiriquement via les erreurs Walk-Forward.
         * **Z-Scores (Panneau Inférieur)** : Mesures de l'écart du prix réel par rapport au modèle LPPL (en orange) et à la Power Law fondamentale (en bleu cyan) exprimés en écarts-types.
-        """,
-            """
-        * **BTC Price (Gray)**: Daily Bitcoin closing price.
-        * **LPPL Model (Orange)**: Fitted LPPL model curve combining trend and oscillations. Dotted lines represent future projection.
-        * **Power Law Fit (Cyan Blue)**: Fundamental trend A + B * ln(t). Upper and lower bands are dynamically calculated from residuals via the adjustable sigma parameter.
-        * **Multi-Sigma Channels (±1σ, ±2σ, ±3σ)**: Probability funnel empirically calibrated via Walk-Forward errors.
-        * **Z-Scores (Lower Panel)**: Measures of real price deviation from the LPPL model (in orange) and fundamental Power Law (in cyan blue) expressed in standard deviations.
-        """,
-        )
-    )
+        """)
 
 # --- Distribution empirique des résidus vs Loi de Student ---
 st.markdown("---")
 st.subheader(
-    t(
-        "📊 Distribution empirique des résidus vs Loi de Student (Fat Tails"
-        " Check)",
-        "📊 Empirical Residual Distribution vs Student-t (Fat Tails Check)",
-    )
+    "📊 Distribution empirique des résidus vs Loi de Student (Fat Tails Check)"
 )
 
 dist_horizon_options = {
-    t("In-Sample (Modèle Global)", "In-Sample (Global Model)"): 0,
-    t("3 mois (90 jours) Out-Of-Sample", "3 months (90 days) Out-Of-Sample"): 90,
-    t(
-        "6 mois (180 jours) Out-Of-Sample", "6 months (180 days) Out-Of-Sample"
-    ): 180,
-    t("1 an (365 jours) Out-Of-Sample", "1 year (365 days) Out-Of-Sample"): 365,
-    t("2 ans (730 jours) Out-Of-Sample", "2 years (730 days) Out-Of-Sample"): 730,
-    t(
-        "3 ans (1095 jours) Out-Of-Sample", "3 years (1095 days) Out-Of-Sample"
-    ): 1095,
+    "In-Sample (Modèle Global)": 0,
+    "3 mois (90 jours) Out-Of-Sample": 90,
+    "6 mois (180 jours) Out-Of-Sample": 180,
+    "1 an (365 jours) Out-Of-Sample": 365,
+    "2 ans (730 jours) Out-Of-Sample": 730,
+    "3 ans (1095 jours) Out-Of-Sample": 1095,
 }
 
 selected_dist_label = st.selectbox(
-    t(
-        "Sélectionner la source des résidus (In-Sample ou Horizon Forward OOS)",
-        "Select residual source (In-Sample or Forward OOS Horizon)",
-    ),
+    "Sélectionner la source des résidus (In-Sample ou Horizon Forward OOS)",
     options=list(dist_horizon_options.keys()),
     index=3,
     key="dist_horizon_selectbox",
-    help=t(
-        "❓ Permet de choisir si l'analyse de distribution et des résidus"
-        " s'effectue sur l'In-Sample global ou sur les erreurs de prédiction"
-        " Out-Of-Sample pour un horizon de forward spécifique.",
-        "❓ Choose whether residual distribution analysis runs on global"
-        " In-Sample or Out-Of-Sample prediction errors for a specific forward"
-        " horizon.",
+    help=(
+        "❓ Permet de choisir si l'analyse de distribution et des résidus s'effectue"
+        " sur l'In-Sample global ou sur les erreurs de prédiction Out-Of-Sample"
+        " pour un horizon de forward spécifique."
     ),
 )
 horizon_oos_eval = dist_horizon_options[selected_dist_label]
@@ -1110,13 +954,11 @@ if horizon_oos_eval > 0:
     dist_mode_label = f"Out-Of-Sample ({selected_dist_label.split(' ')[0]})"
   else:
     res_pct_clean = np.array([])
-    dist_mode_label = t(
-        "OOS (Données insuffisantes)", "OOS (Insufficient Data)"
-    )
+    dist_mode_label = "OOS (Données insuffisantes)"
 else:
   residuals_pct = (np.exp(df["residuals"]) - 1.0) * 100.0
   res_pct_clean = residuals_pct.dropna().values
-  dist_mode_label = t("In-Sample", "In-Sample")
+  dist_mode_label = "In-Sample"
 
 if len(res_pct_clean) > 0:
   df_t, loc_t, scale_t = t.fit(res_pct_clean)
@@ -1127,45 +969,27 @@ else:
 col_dist1, col_dist2 = st.columns([2, 1])
 
 with col_dist2:
-  st.markdown(
-      f"### 📐 {t('Analyse de forme (Student-t)', 'Shape Analysis (Student-t)')}"
-      f" [{dist_mode_label}]"
-  )
-  st.markdown(
-      t(
-          f"""
+  st.markdown(f"### 📐 Analyse de forme (Student-t) [{dist_mode_label}]")
+  st.markdown(f"""
     Ce graphique superpose ({dist_mode_label}) :
     * **L'histogramme réel** de vos erreurs de prédiction en pourcentage.
     * **La loi de Student ajustée** (df = {df_t:.2f}).
     
     *L'utilisation d'une loi de Student (t-distribution) plutôt qu'une gaussienne classique permet de modéliser proprement les **fat tails** caractéristiques du Bitcoin à long terme.*
-    """,
-          f"""
-    This chart overlays ({dist_mode_label}):
-    * **The actual histogram** of your percentage prediction errors.
-    * **The fitted Student-t distribution** (df = {df_t:.2f}).
-    
-    *Using a Student-t distribution instead of a standard Gaussian allows proper modeling of **fat tails** characteristic of long-term Bitcoin data.*
-    """,
-      )
-  )
+    """)
 
   st.metric(
-      t("Degrés de liberté (Student df)", "Degrees of Freedom (Student df)"),
+      "Degrés de liberté (Student df)",
       f"{df_t:.2f}",
-      help=t(
+      help=(
           "Plus df est bas (< 30), plus les queues de distribution sont"
-          " épaisses.",
-          "Lower df (< 30) indicates heavier distribution tails.",
+          " épaisses."
       ),
   )
   st.metric(
-      t("Kurtosis des Résidus (%)", "Residual Kurtosis (%)"),
+      "Kurtosis des Résidus (%)",
       f"{kurtosis(res_pct_clean):.2f}" if len(res_pct_clean) > 0 else "N/A",
-      help=t(
-          "Aplatissement mesuré sur la série en pourcentage.",
-          "Flattening measured on the percentage series.",
-      ),
+      help="Aplatissement mesuré sur la série en pourcentage.",
   )
 
 with col_dist1:
@@ -1175,9 +999,7 @@ with col_dist1:
 
     fig_dist = ff.create_distplot(
         [res_pct_clean],
-        [
-            f"{t('Résidus du Modèle (%)', 'Model Residuals (%)')} [{dist_mode_label}]"
-        ],
+        [f"Résidus du Modèle (%) [{dist_mode_label}]"],
         bin_size=1.0,
         show_hist=True,
         show_curve=False,
@@ -1189,7 +1011,7 @@ with col_dist1:
             x=x_range,
             y=y_student,
             mode="lines",
-            name=f"Student-t (df={df_t:.2f})",
+            name=f"Loi de Student (df={df_t:.2f})",
             line=dict(color="#00BFFF", width=2.5, dash="dash"),
         )
     )
@@ -1198,85 +1020,62 @@ with col_dist1:
         height=400,
         margin=dict(l=20, r=20, t=30, b=20),
         legend=dict(orientation="h", y=1.15, x=0.5, xanchor="center"),
-        xaxis_title=t(
-            "Erreur de prédiction / Résidu (%)",
-            "Prediction Error / Residual (%)",
-        ),
-        yaxis_title=t("Densité de probabilité", "Probability Density"),
+        xaxis_title="Erreur de prédiction / Résidu (%)",
+        yaxis_title="Densité de probabilité",
     )
     st.plotly_chart(fig_dist, use_container_width=True)
   else:
-    st.warning(
-        t(
-            "Données OOS insuffisantes pour afficher la distribution.",
-            "Insufficient OOS data to display distribution.",
-        )
-    )
+    st.warning("Données OOS insuffisantes pour afficher la distribution.")
 
 with col_dash:
   with st.container(border=True):
-    st.subheader(
-        t("📊 Fit Quality & Robustesse", "📊 Fit Quality & Robustness")
-    )
+    st.subheader("📊 Fit Quality & Robustesse")
 
     c_g1, c_g2 = st.columns(2)
     c_g1.metric(
         "R² Global",
         f"{r2_global:.4f}",
-        help=t(
+        help=(
             "❓ Coefficient de détermination expliquant la variance observée"
-            " sur le dataset.",
-            "❓ Coefficient of determination explaining variance observed on"
-            " the dataset.",
+            " sur le dataset."
         ),
     )
     c_g2.metric(
         "R² Ajusté",
         f"{r2_adj:.4f}",
-        help=t(
+        help=(
             "❓ Coefficient de détermination ajusté selon le nombre de"
-            " paramètres du modèle.",
-            "❓ Coefficient of determination adjusted for model parameter"
-            " count.",
+            " paramètres du modèle."
         ),
     )
 
     st.metric(
         "Forward R² (1Y OOS)",
         f"{r2_oos_1y:.4f}",
-        help=t(
+        help=(
             "❓ Coefficient de détermination hors-échantillon (Out-Of-Sample)"
-            " évalué sur un horizon prédictif de 1 an.",
-            "❓ Out-of-sample coefficient of determination evaluated on a 1-year"
-            " predictive horizon.",
+            " évalué sur un horizon prédictif de 1 an."
         ),
     )
 
     st.markdown("---")
-    st.caption(
-        t(
-            "📐 **Métriques d'Erreur & Généralisation**",
-            "📐 **Error Metrics & Generalization**",
-        )
-    )
+    st.caption("📐 **Métriques d'Erreur & Généralisation**")
 
     c_m3, c_m4 = st.columns(2)
     c_m3.metric(
         "RMSE In-Sample",
         f"{rmse_pct:.1f}%",
-        help=t(
+        help=(
             "❓ Erreur quadratique moyenne en pourcentage sur la période"
-            " d'entraînement.",
-            "❓ Root mean square error in percentage over the training period.",
+            " d'entraînement."
         ),
     )
     c_m4.metric(
         "MAE In-Sample",
         f"{mae_pct:.1f}%",
-        help=t(
+        help=(
             "❓ Erreur absolue moyenne en pourcentage sur la période"
-            " d'entraînement.",
-            "❓ Mean absolute error in percentage over the training period.",
+            " d'entraînement."
         ),
     )
 
@@ -1284,36 +1083,32 @@ with col_dash:
     c_m5.metric(
         "OOS RMSE (1Y)",
         f"{wf_rmse_1y_val:.1f}%",
-        help=t(
+        help=(
             "❓ Erreur de prédiction hors-échantillon (Out-Of-Sample) sur un"
-            " horizon de 1 an.",
-            "❓ Out-of-sample prediction error over a 1-year horizon.",
+            " horizon de 1 an."
         ),
     )
     c_m6.metric(
-        t("Ratio Out/In", "Out/In Ratio"),
+        "Ratio Out/In",
         f"{gen_ratio:.2f}x",
-        help=t(
+        help=(
             "❓ Ratios < 1.5x indiquent une bonne capacité de généralisation"
-            " (faible surapprentissage).",
-            "❓ Ratios < 1.5x indicate good generalization capacity (low"
-            " overfitting).",
+            " (faible surapprentissage)."
         ),
     )
 
   with st.container(border=True):
-    st.subheader(t("🎯 Valuation", "🎯 Valuation"))
+    st.subheader("🎯 Valuation")
     st.metric(
-        t("Percentile Ratio", "Ratio Percentile"),
+        "Percentile Ratio",
         f"{ratio_percentile:.1f}%",
-        help=t(
+        help=(
             "❓ Position relative de la valorisation actuelle par rapport à"
-            " l'historique complet.",
-            "❓ Relative position of current valuation compared to full history.",
+            " l'historique complet."
         ),
     )
     st.markdown(
-        f"{t('Statut', 'Status')} : <span"
+        f"Statut : <span"
         f" style='color:{state_color};font-weight:bold;'>{state_txt}</span>",
         unsafe_allow_html=True,
     )
@@ -1325,53 +1120,36 @@ with col_dash:
 st.markdown("---")
 
 oos_chart_options = {
-    t("3 mois (90 jours)", "3 months (90 days)"): 90,
-    t("6 mois (180 jours)", "6 months (180 days)"): 180,
-    t("1 an (365 jours)", "1 year (365 days)"): 365,
-    t("2 ans (730 jours)", "2 years (730 days)"): 730,
-    t("3 ans (1095 jours)", "3 years (1095 days)"): 1095,
+    "3 mois (90 jours)": 90,
+    "6 mois (180 jours)": 180,
+    "1 an (365 jours)": 365,
+    "2 ans (730 jours)": 730,
+    "3 ans (1095 jours)": 1095,
 }
 
 if "oos_chart_horizon_selectbox" not in st.session_state:
-  st.session_state["oos_chart_horizon_selectbox"] = t(
-      "1 an (365 jours)", "1 year (365 days)"
-  )
+  st.session_state["oos_chart_horizon_selectbox"] = "1 an (365 jours)"
 
 current_label = st.session_state["oos_chart_horizon_selectbox"]
 
 st.subheader(
-    f"📈 {t('Comparaison de la Courbe de Prédiction Out-Of-Sample', 'Out-Of-Sample Prediction Curve Comparison')}"
-    f" ({current_label}) vs {t('Prix Réel', 'Real Price')}"
+    f"📈 Comparaison de la Courbe de Prédiction Out-Of-Sample"
+    f" ({current_label}) vs Prix Réel"
 )
 
-with st.expander(
-    t("❓ Guide de Lecture - OOS Historique", "❓ Reading Guide - Historical OOS")
-):
-  st.markdown(
-      t(
-          f"""
+with st.expander("❓ Guide de Lecture - OOS Historique"):
+  st.markdown(f"""
     * Ce graphique trace les projections faites par le modèle global avec un horizon fixe de **{current_label}** en amont, comparées directement au prix réel atteint à cette échéance.
     * Il permet d'évaluer visuellement la robustesse et le biais d'anticipation du modèle sur cet horizon à travers tout l'historique du Bitcoin.
-    """,
-          f"""
-    * This chart plots projections made by the global model with a fixed horizon of **{current_label}** ahead, compared directly to the actual price reached at that maturity.
-    * It visually assesses the robustness and anticipation bias of the model over this horizon across Bitcoin's entire history.
-    """,
-      )
-  )
+    """)
 
 selected_oos_chart_label = st.selectbox(
-    t(
-        "Sélectionner l'horizon OOS pour la comparaison de prédiction",
-        "Select OOS horizon for prediction comparison",
-    ),
+    "Sélectionner l'horizon OOS pour la comparaison de prédiction",
     options=list(oos_chart_options.keys()),
     key="oos_chart_horizon_selectbox",
-    help=t(
+    help=(
         "❓ Permet de choisir l'horizon de prédiction Out-Of-Sample affiché dans"
-        " le graphique de comparaison.",
-        "❓ Selects the Out-Of-Sample prediction horizon displayed in the"
-        " comparison chart.",
+        " le graphique de comparaison."
     ),
 )
 h_days = oos_chart_options[selected_oos_chart_label]
@@ -1382,7 +1160,7 @@ fig_oos_parallel.add_trace(
         x=x_hist,
         y=df["Close"],
         mode="lines",
-        name=t("Prix BTC Réel", "Actual BTC Price"),
+        name="Prix BTC Réel",
         line=dict(color="#D1D5DB", width=1.5),
     )
 )
@@ -1416,9 +1194,7 @@ if len(days_arr_p) > h_days:
       )
   )
 
-fig_oos_parallel.update_yaxes(
-    type="log", title_text=t("Prix (USD, Log)", "Price (USD, Log)")
-)
+fig_oos_parallel.update_yaxes(type="log", title_text="Prix (USD, Log)")
 fig_oos_parallel.update_layout(
     template="plotly_dark",
     height=500,
@@ -1441,66 +1217,53 @@ st.plotly_chart(fig_oos_parallel, use_container_width=True)
 # 9. ROLLING WALK-FORWARD & STABILITÉ TEMPORELLE
 # ==============================================================================
 st.markdown("---")
-st.subheader(
-    t(
-        "🔄 Stabilité Temporelle (Rolling Walk-Forward Analysis)",
-        "🔄 Temporal Stability (Rolling Walk-Forward Analysis)",
-    )
-)
+st.subheader("🔄 Stabilité Temporelle (Rolling Walk-Forward Analysis)")
 
 col_rwf_params, col_rwf_chart = st.columns([1, 3])
 
 with col_rwf_params:
   rwf_window = st.number_input(
-      t("Taille Fenêtre Train (Jours)", "Train Window Size (Days)"),
+      "Taille Fenêtre Train (Jours)",
       value=730,
       step=180,
-      help=t(
+      help=(
           "❓ Nombre de jours de données utilisés pour la période"
-          " d'entraînement glissante.",
-          "❓ Number of data days used for the rolling training period.",
+          " d'entraînement glissante."
       ),
   )
 
   horizon_options = {
-      t("3 mois (90 jours)", "3 months (90 days)"): 90,
-      t("6 mois (180 jours)", "6 months (180 days)"): 180,
-      t("1 an (365 jours)", "1 year (365 days)"): 365,
-      t("2 ans (730 jours)", "2 years (730 days)"): 730,
-      t("3 ans (1095 jours)", "3 years (1095 days)"): 1095,
+      "3 mois (90 jours)": 90,
+      "6 mois (180 jours)": 180,
+      "1 an (365 jours)": 365,
+      "2 ans (730 jours)": 730,
+      "3 ans (1095 jours)": 1095,
   }
   selected_horizon_label = st.selectbox(
-      t("Horizon de Test OOS", "OOS Test Horizon"),
+      "Horizon de Test OOS",
       options=list(horizon_options.keys()),
       index=2,
       key="horizon_test_oos_selectbox",
-      help=t(
+      help=(
           "❓ Choisit l'horizon de prédiction hors-échantillon testé à chaque"
-          " étape glissante.",
-          "❓ Selects the out-of-sample prediction horizon tested at each rolling"
-          " step.",
+          " étape glissante."
       ),
   )
   rwf_horizon = horizon_options[selected_horizon_label]
 
   rwf_step = st.number_input(
-      t("Pas de Glissement (Jours)", "Rolling Step (Days)"),
+      "Pas de Glissement (Jours)",
       value=90,
       step=30,
-      help=t(
-          "❓ Pas d'avancement temporel entre chaque évaluation Walk-Forward.",
-          "❓ Time advancement step between each Walk-Forward evaluation.",
-      ),
+      help="❓ Pas d'avancement temporel entre chaque évaluation Walk-Forward.",
   )
 
   metric_choice = st.radio(
-      t("Métrique d'erreur à afficher", "Error metric to display"),
+      "Métrique d'erreur à afficher",
       ["RMSE", "MAE"],
-      help=t(
+      help=(
           "❓ Choisir d'afficher la RMSE ou la MAE dans le graphique de"
-          " stabilité temporelle.",
-          "❓ Choose whether to display RMSE or MAE in the temporal stability"
-          " chart.",
+          " stabilité temporelle."
       ),
   )
 
@@ -1517,7 +1280,7 @@ with col_rwf_chart:
     if metric_choice == "RMSE":
       fig_rwf.add_trace(
           go.Scatter(
-              x=df_rwf[t("Date Evaluation", "Evaluation Date")],
+              x=df_rwf["Date Evaluation"],
               y=df_rwf["RMSE Out-Of-Sample (%)"],
               mode="lines",
               name="RMSE OOS (%)",
@@ -1527,7 +1290,7 @@ with col_rwf_chart:
     else:
       fig_rwf.add_trace(
           go.Scatter(
-              x=df_rwf[t("Date Evaluation", "Evaluation Date")],
+              x=df_rwf["Date Evaluation"],
               y=df_rwf["MAE Out-Of-Sample (%)"],
               mode="lines",
               name="MAE OOS (%)",
@@ -1541,16 +1304,13 @@ with col_rwf_chart:
         margin=dict(l=20, r=20, t=30, b=20),
         legend=dict(orientation="h", y=1.18, x=0.5, xanchor="center"),
         yaxis_title=f"{metric_choice} (%)",
-        xaxis_title=t("Date d'Évaluation", "Evaluation Date"),
+        xaxis_title="Date d'Évaluation",
     )
     st.plotly_chart(fig_rwf, use_container_width=True)
   else:
     st.info(
-        t(
-            "Historique insuffisant pour calculer les fenêtres glissantes"
-            " sélectionnées.",
-            "Insufficient history to calculate selected rolling windows.",
-        )
+        "Historique insuffisant pour calculer les fenêtres glissantes"
+        " sélectionnées."
     )
 
 
@@ -1558,40 +1318,26 @@ with col_rwf_chart:
 # SECTION : POURCENTAGE D'ERREUR RMS / OOS PAR NIVEAU DE SIGMA
 # ==============================================================================
 st.markdown("---")
-st.subheader(
-    t(
-        "🎯 Contribution des Erreurs par Niveau de Sigma (σ) et Brackets",
-        "🎯 Error Contribution by Sigma (σ) Level & Brackets",
-    )
-)
+st.subheader("🎯 Contribution des Erreurs par Niveau de Sigma (σ) et Brackets")
 
 sigma_horizon_options = {
-    t("In-Sample (Modèle Global)", "In-Sample (Global Model)"): 0,
-    t("3 mois (90 jours) Out-Of-Sample", "3 months (90 days) Out-Of-Sample"): 90,
-    t(
-        "6 mois (180 jours) Out-Of-Sample", "6 months (180 days) Out-Of-Sample"
-    ): 180,
-    t("1 an (365 jours) Out-Of-Sample", "1 year (365 days) Out-Of-Sample"): 365,
-    t("2 ans (730 jours) Out-Of-Sample", "2 years (730 days) Out-Of-Sample"): 730,
-    t(
-        "3 ans (1095 jours) Out-Of-Sample", "3 years (1095 days) Out-Of-Sample"
-    ): 1095,
+    "In-Sample (Modèle Global)": 0,
+    "3 mois (90 jours) Out-Of-Sample": 90,
+    "6 mois (180 jours) Out-Of-Sample": 180,
+    "1 an (365 jours) Out-Of-Sample": 365,
+    "2 ans (730 jours) Out-Of-Sample": 730,
+    "3 ans (1095 jours) Out-Of-Sample": 1095,
 }
 
 selected_sigma_label = st.selectbox(
-    t(
-        "Sélectionner l'horizon pour l'analyse des brackets Sigma",
-        "Select horizon for Sigma bracket analysis",
-    ),
+    "Sélectionner l'horizon pour l'analyse des brackets Sigma",
     options=list(sigma_horizon_options.keys()),
     index=3,
     key="sigma_horizon_selectbox",
-    help=t(
+    help=(
         "❓ Permet de choisir l'horizon In-Sample ou Out-Of-Sample"
         " spécifiquement pour l'analyse de la contribution des erreurs par"
-        " brackets de sigma.",
-        "❓ Selects In-Sample or Out-Of-Sample horizon specifically for sigma"
-        " bracket error contribution analysis.",
+        " brackets de sigma."
     ),
 )
 horizon_sigma_eval = sigma_horizon_options[selected_sigma_label]
@@ -1600,7 +1346,7 @@ use_oos_sigma = horizon_sigma_eval > 0
 analysis_mode_label = (
     f"Out-Of-Sample ({selected_sigma_label.split(' ')[0]})"
     if use_oos_sigma
-    else t("In-Sample", "In-Sample")
+    else "In-Sample"
 )
 
 if use_oos_sigma:
@@ -1659,9 +1405,7 @@ if sigma_res > 0:
         go.Bar(
             x=bracket_names,
             y=pct_points,
-            name=(
-                f"{t('Part des Points (%)', 'Points Share (%)')} [{analysis_mode_label}]"
-            ),
+            name=f"Part des Points (%) [{analysis_mode_label}]",
             marker_color="#38BDF8",
         )
     )
@@ -1669,9 +1413,7 @@ if sigma_res > 0:
         go.Bar(
             x=bracket_names,
             y=pct_mse,
-            name=(
-                f"{t('Contribution à l’Erreur RMS/MSE (%)', 'RMS/MSE Error Contribution (%)')} [{analysis_mode_label}]"
-            ),
+            name=f"Contribution à l'Erreur RMS/MSE (%) [{analysis_mode_label}]",
             marker_color="#FF9900",
         )
     )
@@ -1681,46 +1423,27 @@ if sigma_res > 0:
         height=380,
         margin=dict(l=20, r=20, t=30, b=20),
         legend=dict(orientation="h", y=1.15, x=0.5, xanchor="center"),
-        xaxis_title=t(
-            "Intervalles d'Écart-type (sigma)",
-            "Standard Deviation Intervals (sigma)",
-        ),
-        yaxis_title=t("Pourcentage (%)", "Percentage (%)"),
+        xaxis_title="Intervalles d'Écart-type (sigma)",
+        yaxis_title="Pourcentage (%)",
     )
     st.plotly_chart(fig_sigma_contrib, use_container_width=True)
 
   with col_sig2:
-    st.markdown(
-        f"### 📊 {t('Analyse des Brackets Sigma', 'Sigma Bracket Analysis')} ({analysis_mode_label})"
-    )
-    st.markdown(
-        t(
-            """
+    st.markdown(f"### 📊 Analyse des Brackets Sigma ({analysis_mode_label})")
+    st.markdown("""
         Ce graphique permet d'identifier l'origine de l'erreur globale :
         * **Part des points (Bleu)** : Fréquence brute des écarts dans chaque tranche.
         * **Contribution RMS/MSE (Orange)** : Poids des erreurs au carré, soulignant l'impact des valeurs extrêmes (fat tails).
-        """,
-            """
-        This chart helps identify the origin of global error:
-        * **Points Share (Blue)**: Raw frequency of deviations in each bracket.
-        * **RMS/MSE Contribution (Orange)**: Weight of squared errors, highlighting the impact of extreme values (fat tails).
-        """,
-        )
-    )
+        """)
 
     df_bracket_summary = pd.DataFrame({
-        t("Bracket", "Bracket"): bracket_names,
-        t("Points (%)", "Points (%)"): pct_points,
+        "Bracket": bracket_names,
+        "Points (%)": pct_points,
         "MSE (%)": pct_mse,
     })
     st.dataframe(df_bracket_summary, hide_index=True, use_container_width=True)
 else:
-  st.info(
-      t(
-          "Données insuffisantes pour calculer la répartition par sigma.",
-          "Insufficient data to calculate sigma distribution.",
-      )
-  )
+  st.info("Données insuffisantes pour calculer la répartition par sigma.")
 
 
 # ==============================================================================
@@ -1730,12 +1453,7 @@ st.markdown("---")
 col_wf, col_proj = st.columns(2)
 
 with col_wf:
-  st.subheader(
-      t(
-          "📈 Performance Walk-Forward (Globale)",
-          "📈 Walk-Forward Performance (Global)",
-      )
-  )
+  st.subheader("📈 Performance Walk-Forward (Globale)")
 
   days_arr = df["Days"].values
   close_arr = df["Close"].values
@@ -1746,10 +1464,10 @@ with col_wf:
         h, days_arr, close_arr, A, B, C1, omega, phi1, C2, phi2
     )
     wf_data.append({
-        t("Horizon", "Horizon"): f"{h}d",
+        "Horizon": f"{h}d",
         "Forward R²": f"{r2_oos:.3f}",
-        t("Dir Acc", "Dir Acc"): f"{acc:.0f}%",
-        t("Edge", "Edge"): f"{edge:.1f}%",
+        "Dir Acc": f"{acc:.0f}%",
+        "Edge": f"{edge:.1f}%",
         "MAE OOS": f"{mae_h:.1f}%",
         "RMSE OOS": f"{rmse_h:.1f}%",
     })
@@ -1758,7 +1476,7 @@ with col_wf:
   )
 
 with col_proj:
-  st.subheader(t("🎯 Objectifs de Prix & Export", "🎯 Price Targets & Export"))
+  st.subheader("🎯 Objectifs de Prix & Export")
 
   proj_data = []
   export_rows = []
@@ -1775,11 +1493,9 @@ with col_proj:
       cone_upper = proj_price * np.exp(sigma_cone * uncert)
 
       proj_data.append({
-          t("Horizon", "Horizon"): f"{yr}Y",
-          t("LPPL Target", "LPPL Target"): f"${proj_price:,.0f}",
-          t(
-              "Cône Projection (±1σ)", "Projection Cone (±1σ)"
-          ): f"${cone_lower:,.0f} - ${cone_upper:,.0f}",
+          "Horizon": f"{yr}Y",
+          "LPPL Target": f"${proj_price:,.0f}",
+          "Cône Projection (±1σ)": f"${cone_lower:,.0f} - ${cone_upper:,.0f}",
       })
       export_rows.append({
           "Horizon": f"{yr}Y",
@@ -1797,15 +1513,11 @@ with col_proj:
   csv_data = df_export.to_csv(index=False).encode("utf-8")
 
   st.download_button(
-      label=t(
-          "📥 Télécharger les projections (CSV)",
-          "📥 Download Projections (CSV)",
-      ),
+      label="📥 Télécharger les projections (CSV)",
       data=csv_data,
       file_name=f"btc_lppl_projections_{last_date.strftime('%Y%m%d')}.csv",
       mime="text/csv",
-      help=t(
-          "❓ Exporte le tableau des objectifs de prix futurs au format CSV.",
-          "❓ Exports the future price targets table in CSV format.",
+      help=(
+          "❓ Exporte le tableau des objectifs de prix futurs au format CSV."
       ),
   )
