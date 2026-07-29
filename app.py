@@ -210,40 +210,58 @@ with st.sidebar.expander("🌊 Harmoniques LPPL", expanded=True):
 # ==============================================================================
 @st.cache_data(ttl=3600)
 def load_btc_data():
+  df_cm = pd.DataFrame()
   try:
     url_coinmetrics = (
         "https://raw.githubusercontent.com/coinmetrics/data/master/csv/btc.csv"
     )
     df_raw = pd.read_csv(url_coinmetrics)
-    df = pd.DataFrame()
-    df["Date"] = pd.to_datetime(df_raw["time"])
-    df["Close"] = pd.to_numeric(df_raw["PriceUSD"], errors="coerce")
-    df = df.dropna(subset=["Close"]).sort_values("Date", ascending=True)
+    df_cm["Date"] = pd.to_datetime(df_raw["time"])
+    df_cm["Close"] = pd.to_numeric(df_raw["PriceUSD"], errors="coerce")
+    df_cm = df_cm.dropna(subset=["Close"])
   except Exception:
-    try:
-      all_klines = []
-      start_time = int(pd.to_datetime("2017-08-17").timestamp() * 1000)
-      while True:
-        url_binance = (
-            f"https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&startTime={start_time}&limit=1000"
-        )
-        res = pd.read_json(url_binance)
-        if res.empty:
-          break
-        all_klines.append(res)
-        start_time = int(res.iloc[-1][0]) + 86400000
-        if len(res) < 1000:
-          break
+    pass
 
-      df_binance = pd.concat(all_klines, ignore_index=True)
-      df = pd.DataFrame()
-      df["Date"] = pd.to_datetime(df_binance[0], unit="ms")
-      df["Close"] = pd.to_numeric(df_binance[4], errors="coerce")
-    except Exception as e:
-      st.error(f"Erreur lors du chargement des données historiques : {e}")
-      st.stop()
+  df_binance = pd.DataFrame()
+  try:
+    all_klines = []
+    start_time = int(pd.to_datetime("2017-08-17").timestamp() * 1000)
+    while True:
+      url_binance = f"https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&startTime={start_time}&limit=1000"
+      res = pd.read_json(url_binance)
+      if res.empty:
+        break
+      all_klines.append(res)
+      start_time = int(res.iloc[-1][0]) + 86400000
+      if len(res) < 1000:
+        break
+    df_b = pd.concat(all_klines, ignore_index=True)
+    df_binance["Date"] = pd.to_datetime(df_b[0], unit="ms")
+    df_binance["Close"] = pd.to_numeric(df_b[4], errors="coerce")
+    df_binance = df_binance.dropna(subset=["Close"])
+  except Exception:
+    pass
 
-  df = df[df["Close"] > 0].reset_index(drop=True)
+  if df_cm.empty and df_binance.empty:
+    st.error(
+        "Erreur critique : Impossible de charger les données historiques."
+    )
+    st.stop()
+
+  # Fusion : CoinMetrics pour le début, Binance pour compléter jusqu'à aujourd'hui
+  if not df_cm.empty and not df_binance.empty:
+    df_cm = df_cm[df_cm["Date"] < df_binance["Date"].min()]
+    df = pd.concat([df_cm, df_binance], ignore_index=True)
+  elif not df_binance.empty:
+    df = df_binance
+  else:
+    df = df_cm
+
+  df = (
+      df[df["Close"] > 0]
+      .sort_values("Date", ascending=True)
+      .reset_index(drop=True)
+  )
   df["Days"] = (df["Date"] - GENESIS_DATE).dt.total_seconds() / 86400.0
   df["Days"] = np.maximum(df["Days"], 1.0)
   df["lnT"] = np.log(df["Days"])
@@ -1521,3 +1539,5 @@ with col_proj:
           "❓ Exporte le tableau des objectifs de prix futurs au format CSV."
       ),
   )
+
+
