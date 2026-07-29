@@ -15,17 +15,11 @@ Export / Import: Saving and restoring model parameters in JSON format.Disclaimer
 !!!!DISCLAIMER : It does not constitute investment advice in any way.
 
 
-
+#####################################################################///French///##############################################
 
 \# ₿ Bitcoin PowerLaw + LPPL (2 Harmonics) - Advanced Analytics
 
-
-
 Application web interactive développée avec \*\*Streamlit\*\* pour l'analyse quantitative et la modélisation à long terme du Bitcoin. Ce modèle combine la tendance fondamentale de la \*\*Loi de Puissance (Power Law)\*\* et le modèle \*\*Log-Periodic Power Law (LPPL)\*\* avec deux harmoniques (macro et micro cycles) pour évaluer la dynamique des prix et les risques de bulles.
-
-
-
-\---
 
 
 
