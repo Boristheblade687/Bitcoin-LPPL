@@ -311,6 +311,45 @@ def f_log_model(lnT, a_val, b_val, c1_val, omega_val, p1_val, c2_val, p2_val):
   return trend_val + h1 + h2
 
 
+@st.cache_data
+def calculate_bubble_hazard_index(df_data, window=180):
+  """Calcule un indice composite de risque de bulle (0 à 100%)
+
+  basé sur la combinaison du Z-Score Power Law, de la compression de
+  volatilité et du momentum.
+  """
+  d = df_data.copy()
+
+  # 1. Composante Valuation : Z-Score Power Law normalisé (capé entre 0 et 4σ)
+  z_pl = d["z_score_pl"].fillna(0)
+  comp_valuation = np.clip(z_pl / 4.0, 0.0, 1.0)
+
+  # 2. Composante Volatilité glissante (compression des résidus = phase critique)
+  rolling_vol = d["residuals"].rolling(window=window, min_periods=30).std()
+  vol_median = rolling_vol.median()
+  if vol_median > 0:
+    comp_vol_compression = np.clip(
+        vol_median / (rolling_vol.fillna(vol_median)), 0.5, 2.0
+    )
+    comp_vol_compression = (comp_vol_compression - 0.5) / 1.5
+  else:
+    comp_vol_compression = pd.Series(0.5, index=d.index)
+
+  # 3. Composante Momentum / Accélération des prix (ROC sur 90 jours)
+  price_roc = d["Close"].pct_change(90).fillna(0)
+  comp_momentum = np.clip(price_roc / 2.0, 0.0, 1.0)
+
+  # Indice Composite pondéré (score de 0 à 100)
+  hazard_index = (
+      0.50 * comp_valuation
+      + 0.25 * comp_vol_compression.values
+      + 0.25 * comp_momentum.values
+  ) * 100.0
+
+  d["Bubble_Hazard_Index"] = np.clip(hazard_index, 0.0, 100.0)
+  return d
+
+
 # ==============================================================================
 # 4. OPTIMISATION GLOBALE AUTOMATIQUE (DIFFERENTIAL EVOLUTION)
 # ==============================================================================
@@ -381,7 +420,7 @@ if "opt_msg" in st.session_state:
 
 
 # ==============================================================================
-# 5. CALCULS GLOBAUX, POWER LAW & RÉSIDUS (Z-SCORES)
+# 5. CALCULS GLOBAUX, POWER LAW, RÉSIDUS & INDICE DE RISQUE DE RUPTURE
 # ==============================================================================
 df["trend"] = f_trend(df["lnT"].values, A, B)
 df["trendPrice"] = np.exp(df["trend"])
@@ -400,6 +439,28 @@ df["logModel"] = f_log_model(
 )
 df["modelPrice"] = np.exp(df["logModel"])
 
+df["residuals"] = df["actualLog"] - df["logModel"]
+res_std = np.std(df["residuals"])
+df["z_score"] = df["residuals"] / res_std if res_std > 0 else 0.0
+
+# Intégration du calcul du Bubble Hazard Rate
+df = calculate_bubble_hazard_index(df)
+current_hazard = df["Bubble_Hazard_Index"].iloc[-1]
+
+
+def get_hazard_status(score):
+  if score < 25:
+    return "Phase Calme / Accumulation", "#008000"
+  elif score < 50:
+    return "Maturation Saine", "#38BDF8"
+  elif score < 75:
+    return "Alerte Bulle (Attention)", "#FFA500"
+  else:
+    return "Zone Critique / Risque Imminent", "#FF0000"
+
+
+hazard_txt, hazard_color = get_hazard_status(current_hazard)
+
 ss_res = np.sum((df["actualLog"] - df["logModel"]) ** 2)
 ss_tot = np.sum((df["actualLog"] - np.mean(df["actualLog"])) ** 2)
 r2_global = 1.0 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
@@ -411,10 +472,6 @@ mae_pct = 100.0 * (np.exp(mae) - 1.0)
 
 df["upperBand"] = df["modelPrice"] * (1 + rmse_pct / 100.0)
 df["lowerBand"] = df["modelPrice"] / (1 + rmse_pct / 100.0)
-
-df["residuals"] = df["actualLog"] - df["logModel"]
-res_std = np.std(df["residuals"])
-df["z_score"] = df["residuals"] / res_std if res_std > 0 else 0.0
 
 ratio_history = df["Close"] / df["modelPrice"]
 ratio_percentile = (ratio_history <= ratio_history.iloc[-1]).mean() * 100.0
@@ -647,9 +704,6 @@ if log_time_axis:
   x_proj = [df["lnT"].iloc[-1]] + list(future_lnT_arr)
   x_lppl_all = df["lnT"].tolist() + list(future_lnT_arr)
   xaxis_title = "Logarithme du Temps (ln(t) depuis le Genesis)"
-  custom_hover = df["Date"].dt.strftime("%Y-%m-%d").values
-  fut_hover = [d.strftime("%Y-%m-%d") for d in future_dates_arr]
-  all_hover = df["Date"].dt.strftime("%Y-%m-%d").tolist() + fut_hover
 else:
   x_hist = df["Date"]
   x_trend = df["Date"].tolist() + future_dates_arr
@@ -662,7 +716,6 @@ all_pl_upper = df["trendUpperPrice"].tolist() + list(future_pl_upper)
 all_pl_lower = df["trendLowerPrice"].tolist() + list(future_pl_lower)
 
 proj_lppl = [df["modelPrice"].iloc[-1]] + list(future_lppl)
-all_lppl_prices = df["modelPrice"].tolist() + list(future_lppl)
 
 fig = make_subplots(
     rows=2,
@@ -928,7 +981,191 @@ with col_chart:
         * **Z-Scores (Panneau Inférieur)** : Mesures de l'écart du prix réel par rapport au modèle LPPL (en orange) et à la Power Law fondamentale (en bleu cyan) exprimés en écarts-types.
         """)
 
-# --- Distribution empirique des résidus vs Loi de Student ---
+with col_dash:
+  # --- Widget 1 : Live & Modèle ---
+  with st.container(border=True):
+    st.subheader("📌 Live & Modèle")
+    if not df.empty:
+      current_btc_price = df["Close"].iloc[-1]
+      current_model_price = df["modelPrice"].iloc[-1]
+      current_z_score = df["z_score"].iloc[-1]
+
+      price_delta = (
+          (current_btc_price - df["Close"].iloc[-2]) / df["Close"].iloc[-2] * 100
+          if len(df) > 1
+          else 0.0
+      )
+
+      st.metric(
+          "Prix Actuel BTC",
+          f"${current_btc_price:,.2f}",
+          delta=f"{price_delta:+.2f}% (24h)",
+      )
+      st.metric("Prix Théorique (LPPL)", f"${current_model_price:,.2f}")
+      st.metric("Z-Score LPPL", f"{current_z_score:.2f}σ")
+
+  # --- Widget 2 : Valuation ---
+  with st.container(border=True):
+    st.subheader("🎯 Valuation")
+    st.metric(
+        "Percentile Ratio",
+        f"{ratio_percentile:.1f}%",
+        help=(
+            "❓ Position relative de la valorisation actuelle par rapport à"
+            " l'historique complet."
+        ),
+    )
+    st.markdown(
+        f"Statut : <span"
+        f" style='color:{state_color};font-weight:bold;'>{state_txt}</span>",
+        unsafe_allow_html=True,
+    )
+
+  # --- Widget 3 : Fit Quality & Robustesse ---
+  with st.container(border=True):
+    st.subheader("📊 Fit Quality & Robustesse")
+
+    c_g1, c_g2 = st.columns(2)
+    c_g1.metric(
+        "R² Global",
+        f"{r2_global:.4f}",
+        help=(
+            "❓ Coefficient de détermination expliquant la variance observée"
+            " sur le dataset."
+        ),
+    )
+    c_g2.metric(
+        "R² Ajusté",
+        f"{r2_adj:.4f}",
+        help=(
+            "❓ Coefficient de détermination ajusté selon le nombre de"
+            " paramètres du modèle."
+        ),
+    )
+
+    st.metric(
+        "Forward R² (1Y OOS)",
+        f"{r2_oos_1y:.4f}",
+        help=(
+            "❓ Coefficient de détermination hors-échantillon (Out-Of-Sample)"
+            " évalué sur un horizon prédictif de 1 an."
+        ),
+    )
+
+    st.markdown("---")
+    st.caption("📐 **Métriques d'Erreur & Généralisation**")
+
+    c_m3, c_m4 = st.columns(2)
+    c_m3.metric(
+        "RMSE In-Sample",
+        f"{rmse_pct:.1f}%",
+        help=(
+            "❓ Erreur quadratique moyenne en pourcentage sur la période"
+            " d'entraînement."
+        ),
+    )
+    c_m4.metric(
+        "MAE In-Sample",
+        f"{mae_pct:.1f}%",
+        help=(
+            "❓ Erreur absolue moyenne en pourcentage sur la période"
+            " d'entraînement."
+        ),
+    )
+
+    c_m5, c_m6 = st.columns(2)
+    c_m5.metric(
+        "OOS RMSE (1Y)",
+        f"{wf_rmse_1y_val:.1f}%",
+        help=(
+            "❓ Erreur de prédiction hors-échantillon (Out-Of-Sample) sur un"
+            " horizon de 1 an."
+        ),
+    )
+    c_m6.metric(
+        "Ratio Out/In",
+        f"{gen_ratio:.2f}x",
+        help=(
+            "❓ Ratios < 1.5x indiquent une bonne capacité de généralisation"
+            " (faible surapprentissage)."
+        ),
+    )
+
+
+# ==============================================================================
+# SECTION : INDICATEUR DE RISQUE DE RUPTURE (HAZARD RATE / BUBBLE INDEX)
+# ==============================================================================
+st.markdown("---")
+st.subheader(
+    "🚨 Indicateur de Risque de Rupture (Bubble Hazard Rate / Criticality"
+    " Index)"
+)
+
+with st.expander("❓ Guide de Lecture - Indice de Risque de Rupture"):
+  st.markdown("""
+    * Cet indice synthétise la probabilité d'entrée en régime critique (système instable type tas de sable).
+    * **0 - 25% (Vert)** : Marché sain, en phase de fond ou d'accumulation.
+    * **25 - 50% (Bleu)** : Croissance organique alignée sur la Power Law.
+    * **50 - 75% (Orange)** : Phase spéculative avancée, signaux d'alerte macro.
+    * **> 75% (Rouge)** : Zone de criticité maximale, probabilité élevée de rupture ou de retournement de cycle.
+    """)
+
+fig_hazard = go.Figure()
+fig_hazard.add_trace(
+    go.Scatter(
+        x=df["Date"] if not log_time_axis else df["lnT"],
+        y=df["Bubble_Hazard_Index"],
+        mode="lines",
+        name="Bubble Hazard Index (%)",
+        line=dict(color=hazard_color, width=2),
+        fill="tozeroy",
+        fillcolor=(
+            "rgba(255, 0, 0, 0.1)"
+            if current_hazard > 75
+            else "rgba(56, 189, 248, 0.1)"
+        ),
+    )
+)
+
+fig_hazard.add_hline(
+    y=75,
+    line_dash="dash",
+    line_color="#FF0000",
+    annotation_text="Seuil Critique (75%)",
+    annotation_position="top right",
+)
+fig_hazard.add_hline(
+    y=50,
+    line_dash="dot",
+    line_color="#FFA500",
+    annotation_text="Seuil d'Alerte (50%)",
+    annotation_position="top right",
+)
+
+fig_hazard.update_layout(
+    template="plotly_dark",
+    height=300,
+    margin=dict(l=20, r=20, t=30, b=20),
+    yaxis_title="Indice de Risque (%)",
+    xaxis_title=xaxis_title,
+    yaxis=dict(range=[0, 100]),
+)
+st.plotly_chart(fig_hazard, use_container_width=True)
+
+col_haz1, col_haz2 = st.columns([1, 2])
+with col_haz1:
+  st.metric("Indice de Risque Actuel", f"{current_hazard:.1f} / 100")
+with col_haz2:
+  st.markdown(
+      f"**Statut du Régime :** <span"
+      f" style='color:{hazard_color};font-weight:bold;font-size:1.2em;'>{hazard_txt}</span>",
+      unsafe_allow_html=True,
+  )
+
+
+# ==============================================================================
+# SECTION : DISTRIBUTION EMPIRIQUE DES RÉSIDUS VS LOI DE STUDENT
+# ==============================================================================
 st.markdown("---")
 st.subheader(
     "📊 Distribution empirique des résidus vs Loi de Student (Fat Tails Check)"
@@ -1042,115 +1279,6 @@ with col_dist1:
   else:
     st.warning("Données OOS insuffisantes pour afficher la distribution.")
 
-with col_dash:
-  # --- Widget 1 : Live & Modèle ---
-  with st.container(border=True):
-    st.subheader("📌 Live & Modèle")
-    if not df.empty:
-      current_btc_price = df["Close"].iloc[-1]
-      current_model_price = df["modelPrice"].iloc[-1]
-      current_z_score = df["z_score"].iloc[-1]
-
-      price_delta = (
-          (current_btc_price - df["Close"].iloc[-2]) / df["Close"].iloc[-2] * 100
-          if len(df) > 1
-          else 0.0
-      )
-
-      st.metric(
-          "Prix Actuel BTC",
-          f"${current_btc_price:,.2f}",
-          delta=f"{price_delta:+.2f}% (24h)",
-      )
-      st.metric("Prix Théorique (LPPL)", f"${current_model_price:,.2f}")
-      st.metric("Z-Score LPPL", f"{current_z_score:.2f}σ")
-
-  # --- Widget 2 : Valuation ---
-  with st.container(border=True):
-    st.subheader("🎯 Valuation")
-    st.metric(
-        "Percentile Ratio",
-        f"{ratio_percentile:.1f}%",
-        help=(
-            "❓ Position relative de la valorisation actuelle par rapport à"
-            " l'historique complet."
-        ),
-    )
-    st.markdown(
-        f"Statut : <span"
-        f" style='color:{state_color};font-weight:bold;'>{state_txt}</span>",
-        unsafe_allow_html=True,
-    )
-
-  # --- Widget 3 : Fit Quality & Robustesse ---
-  with st.container(border=True):
-    st.subheader("📊 Fit Quality & Robustesse")
-
-    c_g1, c_g2 = st.columns(2)
-    c_g1.metric(
-        "R² Global",
-        f"{r2_global:.4f}",
-        help=(
-            "❓ Coefficient de détermination expliquant la variance observée"
-            " sur le dataset."
-        ),
-    )
-    c_g2.metric(
-        "R² Ajusté",
-        f"{r2_adj:.4f}",
-        help=(
-            "❓ Coefficient de détermination ajusté selon le nombre de"
-            " paramètres du modèle."
-        ),
-    )
-
-    st.metric(
-        "Forward R² (1Y OOS)",
-        f"{r2_oos_1y:.4f}",
-        help=(
-            "❓ Coefficient de détermination hors-échantillon (Out-Of-Sample)"
-            " évalué sur un horizon prédictif de 1 an."
-        ),
-    )
-
-    st.markdown("---")
-    st.caption("📐 **Métriques d'Erreur & Généralisation**")
-
-    c_m3, c_m4 = st.columns(2)
-    c_m3.metric(
-        "RMSE In-Sample",
-        f"{rmse_pct:.1f}%",
-        help=(
-            "❓ Erreur quadratique moyenne en pourcentage sur la période"
-            " d'entraînement."
-        ),
-    )
-    c_m4.metric(
-        "MAE In-Sample",
-        f"{mae_pct:.1f}%",
-        help=(
-            "❓ Erreur absolue moyenne en pourcentage sur la période"
-            " d'entraînement."
-        ),
-    )
-
-    c_m5, c_m6 = st.columns(2)
-    c_m5.metric(
-        "OOS RMSE (1Y)",
-        f"{wf_rmse_1y_val:.1f}%",
-        help=(
-            "❓ Erreur de prédiction hors-échantillon (Out-Of-Sample) sur un"
-            " horizon de 1 an."
-        ),
-    )
-    c_m6.metric(
-        "Ratio Out/In",
-        f"{gen_ratio:.2f}x",
-        help=(
-            "❓ Ratios < 1.5x indiquent une bonne capacité de généralisation"
-            " (faible surapprentissage)."
-        ),
-    )
 
 # ==============================================================================
 # SECTION : COURBE DE PRÉDICTION OOS (HORIZON PERSONNALISABLE)
