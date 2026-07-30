@@ -955,9 +955,15 @@ fig.add_hline(y=0.0, line_dash="solid", line_color="gray", row=2, col=1)
 fig.update_yaxes(type="log", title_text="Prix (USD)", row=1, col=1)
 fig.update_yaxes(title_text="Z-Score (σ)", row=2, col=1)
 
+x_min_val = x_trend[0]
+x_max_val = x_trend[-1]
+
 xaxis_config = (
     dict(
-        title=dict(text=xaxis_title, standoff=40), rangeslider=dict(visible=False)
+        title=dict(text=xaxis_title, standoff=40),
+        rangeslider=dict(visible=False),
+        range=[x_min_val, x_max_val],
+        autorange=False,
     )
     if log_time_axis
     else dict(
@@ -972,6 +978,8 @@ xaxis_config = (
             ]),
         ),
         rangeslider=dict(visible=False),
+        range=[x_min_val, x_max_val],
+        autorange=False,
     )
 )
 
@@ -980,7 +988,7 @@ fig.update_xaxes(xaxis_config)
 fig.update_layout(
     template="plotly_dark",
     height=1050,
-    margin=dict(l=20, r=20, t=100, b=150),
+    margin=dict(l=5, r=5, t=100, b=150),
     legend=dict(
         orientation="h",
         yanchor="bottom",
@@ -1000,8 +1008,6 @@ fig.update_layout(
         bgcolor="rgba(0,0,0,0.5)",
     ),
 )
-
-
 # ==============================================================================
 # 8. DASHBOARD & MÉTRIQUES COMPLÈTES
 # ==============================================================================
@@ -1321,7 +1327,7 @@ with col_clock_omega:
   fig_clock_omega.update_layout(
       template="plotly_dark",
       height=480,
-      margin=dict(l=10, r=10, t=20, b=10),
+      margin=dict(l=10, r=10, t=20, b=30),
       polar=dict(
           radialaxis=dict(visible=False, range=[0, 6.5]),
           angularaxis=dict(
@@ -1792,6 +1798,7 @@ with col_proj:
       file_name=f"btc_lppl_projections_{last_date.strftime('%Y%m%d')}.csv",
       mime="text/csv",
   )
+
 
 # ==============================================================================
 # SECTION : SIMULATEUR DE DCA INTELLIGENT (SMART DCA)
