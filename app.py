@@ -1483,211 +1483,220 @@ with col_clock_omega:
 
 
 # ==============================================================================
-# SECTION : FRACTIONS D'ÉNERGIE PAR MODE (TWIST / WRITHE) - VERSION LISSÉE
+# SECTION COMBINÉE : FRACTIONS D'ÉNERGIE ET VISUALISATION DES HARMONIQUES CÔTE À CÔTE
 # ==============================================================================
 st.markdown("---")
-st.subheader("⚡ Fractions d'énergie par mode (Twist / Writhe résolus dans le temps)")
 
-with st.expander("❓ Guide de lecture - Fractions d'énergie par mode"):
-    st.markdown("""
-    * Ce graphique représente la décomposition temporelle des fractions d'énergie par mode harmonique (du $0.5\omega$ au $4.0\omega$) ainsi que la composante de torsion non-périodique (**Writhe - wr**).
-    * **Twist (~0.61)** : Énergie cumulée des modes oscillatoires harmoniques.
-    * **Writhe (~0.39)** : Énergie de fond / résiduelle liée à la tendance structurelle Power Law.
-    """)
-
-# Conversion du temps en années décimales pour des courbes macro lisses
+# Calcul partagé des profils d'énergie et fractions lissées
 years = df["Date"].dt.year + df["Date"].dt.dayofyear / 365.25
 t_norm = (years - 2010.0) / (2026.0 - 2010.0)  # Normalisé entre 0 et 1 de 2010 à 2026
 
-# Modélisation des enveloppes macro-énergétiques lisses par mode
-# 0.5ω : Fine bande de base
 f_05 = 0.02 + 0.01 * np.sin(t_norm * np.pi)
-
-# 1.0ω (Fondamental) : Dominant au début (2010-2015), puis décroît fortement
 f_10 = 0.35 * np.exp(-2.5 * t_norm) + 0.05
-
-# 2.0ω : Vague intermédiaire qui pulse entre 2012 et 2018
 f_20 = 0.15 + 0.12 * np.sin(t_norm * np.pi * 1.5) * np.exp(-((t_norm - 0.3) ** 2) / 0.1)
 f_20 = np.clip(f_20, 0.05, 0.30)
-
-# 3.0ω : S'amplifie après 2016
 f_30 = 0.08 + 0.12 * (1.0 - np.exp(-3.0 * t_norm))
-
-# 4.0ω : Fine bande supérieure du Twist
 f_40 = 0.06 + 0.02 * np.sin(t_norm * np.pi * 2)
 
-# Ajustement pour que la somme du Twist (les 5 modes) fasse exactement ~0.61
 twist_raw = f_05 + f_10 + f_20 + f_30 + f_40
 f_05_s = f_05 / twist_raw * 0.61
 f_10_s = f_10 / twist_raw * 0.61
 f_20_s = f_20 / twist_raw * 0.61
 f_30_s = f_30 / twist_raw * 0.61
 f_40_s = f_40 / twist_raw * 0.61
-
-# Writhe (wr) : Le reste pour combler jusqu'à 1.0 (soit ~0.39, avec la forme de vallée caractéristique)
 f_wr = 1.0 - (f_05_s + f_10_s + f_20_s + f_30_s + f_40_s)
 
-# Sécurité pour récupérer l'angle du DataFrame (fallback à 0 si non présent)
 custom_angles = df["clock_angle"] if "clock_angle" in df.columns else np.zeros(len(df))
+lnT_full = df["lnT"].values
 
-fig_energy = go.Figure()
+# Création des deux colonnes principales côte à côte
+col_left, col_right = st.columns(2)
 
-# Ajout des aires empilées (Stacked Area Chart) avec info de l'angle en degrés au survol
-fig_energy.add_trace(
-    go.Scatter(
-        x=df["Date"],
-        y=f_05_s,
-        name="0.5ω",
-        mode="lines",
-        line=dict(width=0.5, color="#1f77b4"),
-        stackgroup="one",
-        customdata=custom_angles,
-        hovertemplate="Date: %{x|%Y-%m-%d}<br>Angle: %{customdata:.1f}°<br>Fraction: %{y:.3f}<extra>%{data.name}</extra>",
-    )
-)
-fig_energy.add_trace(
-    go.Scatter(
-        x=df["Date"],
-        y=f_10_s,
-        name="1.0ω",
-        mode="lines",
-        line=dict(width=0.5, color="#ff7f0e"),
-        stackgroup="one",
-        customdata=custom_angles,
-        hovertemplate="Date: %{x|%Y-%m-%d}<br>Angle: %{customdata:.1f}°<br>Fraction: %{y:.3f}<extra>%{data.name}</extra>",
-    )
-)
-fig_energy.add_trace(
-    go.Scatter(
-        x=df["Date"],
-        y=f_20_s,
-        name="2.0ω",
-        mode="lines",
-        line=dict(width=0.5, color="#2ca02c"),
-        stackgroup="one",
-        customdata=custom_angles,
-        hovertemplate="Date: %{x|%Y-%m-%d}<br>Angle: %{customdata:.1f}°<br>Fraction: %{y:.3f}<extra>%{data.name}</extra>",
-    )
-)
-fig_energy.add_trace(
-    go.Scatter(
-        x=df["Date"],
-        y=f_30_s,
-        name="3.0ω",
-        mode="lines",
-        line=dict(width=0.5, color="#d62728"),
-        stackgroup="one",
-        customdata=custom_angles,
-        hovertemplate="Date: %{x|%Y-%m-%d}<br>Angle: %{customdata:.1f}°<br>Fraction: %{y:.3f}<extra>%{data.name}</extra>",
-    )
-)
-fig_energy.add_trace(
-    go.Scatter(
-        x=df["Date"],
-        y=f_40_s,
-        name="4.0ω",
-        mode="lines",
-        line=dict(width=0.5, color="#9467bd"),
-        stackgroup="one",
-        customdata=custom_angles,
-        hovertemplate="Date: %{x|%Y-%m-%d}<br>Angle: %{customdata:.1f}°<br>Fraction: %{y:.3f}<extra>%{data.name}</extra>",
-    )
-)
-fig_energy.add_trace(
-    go.Scatter(
-        x=df["Date"],
-        y=f_wr,
-        name="wr",
-        mode="lines",
-        line=dict(width=0.5, color="#8c564b"),
-        stackgroup="one",
-        customdata=custom_angles,
-        hovertemplate="Date: %{x|%Y-%m-%d}<br>Angle: %{customdata:.1f}°<br>Fraction: %{y:.3f}<extra>%{data.name}</extra>",
-    )
-)
-
-# Matérialisation de 45°, 135°, 225°, 315° répétés sur TOUT l'axe X via un angle déroulé (unwrapped)
-if "clock_angle" in df.columns:
-    angles = df["clock_angle"].values
-    k = 0
-    unwrapped_angles = []
-    prev_a = angles[0]
+# ==============================================================================
+# COLONNE GAUCHE : FRACTIONS D'ÉNERGIE (TWIST / WRITHE)
+# ==============================================================================
+with col_left:
+    st.subheader("⚡ Fractions d'énergie par mode")
     
-    # Reconstruction d'un angle continu pour traverser les cycles successifs
-    for a in angles:
-        if a < prev_a - 180:
-            k += 1
-        elif a > prev_a + 180:
-            k -= 1
-        unwrapped_angles.append(k * 360 + a)
-        prev_a = a
+    with st.expander("❓ Guide de lecture - Fractions d'énergie"):
+        st.markdown("""
+        * Décomposition temporelle des fractions d'énergie par mode harmonique ($0.5\omega$ à $4.0\omega$) et composante **Writhe**.
+        * **Twist (~0.61)** : Énergie cumulée des modes oscillatoires.
+        * **Writhe (~0.39)** : Énergie de fond / résiduelle (Power Law).
+        """)
+
+    fig_energy = go.Figure()
+
+    fig_energy.add_trace(go.Scatter(
+        x=df["Date"], y=f_05_s, name="0.5ω", mode="lines",
+        line=dict(width=0.5, color="#1f77b4"), stackgroup="one",
+        customdata=custom_angles,
+        hovertemplate="Date: %{x|%Y-%m-%d}<br>Angle: %{customdata:.1f}°<br>Fraction: %{y:.3f}<extra>%{data.name}</extra>"
+    ))
+    fig_energy.add_trace(go.Scatter(
+        x=df["Date"], y=f_10_s, name="1.0ω", mode="lines",
+        line=dict(width=0.5, color="#ff7f0e"), stackgroup="one",
+        customdata=custom_angles,
+        hovertemplate="Date: %{x|%Y-%m-%d}<br>Angle: %{customdata:.1f}°<br>Fraction: %{y:.3f}<extra>%{data.name}</extra>"
+    ))
+    fig_energy.add_trace(go.Scatter(
+        x=df["Date"], y=f_20_s, name="2.0ω", mode="lines",
+        line=dict(width=0.5, color="#2ca02c"), stackgroup="one",
+        customdata=custom_angles,
+        hovertemplate="Date: %{x|%Y-%m-%d}<br>Angle: %{customdata:.1f}°<br>Fraction: %{y:.3f}<extra>%{data.name}</extra>"
+    ))
+    fig_energy.add_trace(go.Scatter(
+        x=df["Date"], y=f_30_s, name="3.0ω", mode="lines",
+        line=dict(width=0.5, color="#d62728"), stackgroup="one",
+        customdata=custom_angles,
+        hovertemplate="Date: %{x|%Y-%m-%d}<br>Angle: %{customdata:.1f}°<br>Fraction: %{y:.3f}<extra>%{data.name}</extra>"
+    ))
+    fig_energy.add_trace(go.Scatter(
+        x=df["Date"], y=f_40_s, name="4.0ω", mode="lines",
+        line=dict(width=0.5, color="#9467bd"), stackgroup="one",
+        customdata=custom_angles,
+        hovertemplate="Date: %{x|%Y-%m-%d}<br>Angle: %{customdata:.1f}°<br>Fraction: %{y:.3f}<extra>%{data.name}</extra>"
+    ))
+    fig_energy.add_trace(go.Scatter(
+        x=df["Date"], y=f_wr, name="wr", mode="lines",
+        line=dict(width=0.5, color="#8c564b"), stackgroup="one",
+        customdata=custom_angles,
+        hovertemplate="Date: %{x|%Y-%m-%d}<br>Angle: %{customdata:.1f}°<br>Fraction: %{y:.3f}<extra>%{data.name}</extra>"
+    ))
+
+    # Lignes verticales des angles cycliques
+    if "clock_angle" in df.columns:
+        angles = df["clock_angle"].values
+        k = 0
+        unwrapped_angles = []
+        prev_a = angles[0]
+        for a in angles:
+            if a < prev_a - 180:
+                k += 1
+            elif a > prev_a + 180:
+                k -= 1
+            unwrapped_angles.append(k * 360 + a)
+            prev_a = a
+            
+        df_temp = df.copy()
+        df_temp["unwrapped_angle"] = unwrapped_angles
+        min_ang, max_ang = df_temp["unwrapped_angle"].min(), df_temp["unwrapped_angle"].max()
+        offsets = [45, 135, 225, 315]
         
-    df_temp = df.copy()
-    df_temp["unwrapped_angle"] = unwrapped_angles
-    
-    min_ang = df_temp["unwrapped_angle"].min()
-    max_ang = df_temp["unwrapped_angle"].max()
-    
-    offsets = [45, 135, 225, 315]
-    min_k = int(np.floor(min_ang / 360))
-    max_k = int(np.ceil(max_ang / 360))
-    
-    target_angles = []
-    for cycle in range(min_k, max_k + 1):
-        for offset in offsets:
-            ang = cycle * 360 + offset
-            if min_ang <= ang <= max_ang:
-                target_angles.append(ang)
-                
-    for target_angle in target_angles:
-        idx = (df_temp["unwrapped_angle"] - target_angle).abs().idxmin()
-        date_val = df_temp.loc[idx, "Date"]
-        display_angle = int(target_angle) % 360
-        
-        fig_energy.add_vline(
-            x=date_val,
-            line_dash="dash",
-            line_color="rgba(255, 255, 255, 0.2)",
-            line_width=0.8,
-            annotation_text=f"{display_angle}°",
-            annotation_position="top",
-            annotation_font_size=9,
-            annotation_font_color="rgba(255, 255, 255, 0.6)"
-        )
+        for cycle in range(int(np.floor(min_ang / 360)), int(np.ceil(max_ang / 360)) + 1):
+            for offset in offsets:
+                ang = cycle * 360 + offset
+                if min_ang <= ang <= max_ang:
+                    idx = (df_temp["unwrapped_angle"] - ang).abs().idxmin()
+                    fig_energy.add_vline(
+                        x=df_temp.loc[idx, "Date"], line_dash="dash",
+                        line_color="rgba(255, 255, 255, 0.2)", line_width=0.8,
+                        annotation_text=f"{int(ang) % 360}°", annotation_position="top",
+                        annotation_font_size=9, annotation_font_color="rgba(255, 255, 255, 0.6)"
+                    )
 
-fig_energy.update_layout(
-    template="plotly_dark",
-    title="Fractions d'énergie Twist/Writhe résolues dans le temps",
-    height=450,
-    margin=dict(l=20, r=20, t=40, b=20),
-    yaxis=dict(title="Fraction d'énergie", range=[0, 1.0]),
-    xaxis=dict(title="Année civile"),
-    legend=dict(
-        orientation="v",
-        yanchor="top",
-        y=0.98,
-        xanchor="right",
-        x=0.99,
-        bgcolor="rgba(0,0,0,0.6)",
-    ),
-)
-
-col_eng_chart, col_eng_text = st.columns([3, 1])
-with col_eng_chart:
+    fig_energy.update_layout(
+        template="plotly_dark", title="Fractions d'énergie Twist/Writhe",
+        height=450, margin=dict(l=20, r=20, t=40, b=20),
+        yaxis=dict(title="Fraction", range=[0, 1.0]), xaxis=dict(title="Date"),
+        legend=dict(orientation="v", yanchor="top", y=0.98, xanchor="right", x=0.99, bgcolor="rgba(0,0,0,0.6)")
+    )
     st.plotly_chart(fig_energy, use_container_width=True)
 
-with col_eng_text:
-    with st.container(border=True):
-        st.markdown("##### 📌 Synthèse des Modes")
-        st.markdown(
-            "* **Twist (4 modes) ~ 0.61**\n"
-            "  * Fondamental ($1.0\omega$)\n"
-            "  * Puis $2.0\omega$ (depuis 2018)\n"
-            "  * Et harmoniques supérieures ($3.0\omega$, $4.0\omega$)"
-        )
-        st.markdown("* **Writhe ~ 0.39**")
+# ==============================================================================
+# COLONNE DROITE : VISUALISATION INTERACTIVE DES HARMONIQUES
+# ==============================================================================
+with col_right:
+    st.subheader("🎼 Harmoniques par Mode ($0.5\omega$ à $4.0\omega$)")
     
+    with st.expander("❓ Guide de lecture - Harmoniques"):
+        st.markdown("""
+        * Sélectionnez les harmoniques à afficher.
+        * Les amplitudes sont modulées dynamiquement par leurs fractions d'énergie respectives.
+        """)
 
+    col_h_chk1, col_h_chk2, col_h_chk3, col_h_chk4, col_h_chk5 = st.columns(5)
+    with col_h_chk1:
+        show_h05 = st.checkbox("0.5w", value=True, key="chk_h05")
+    with col_h_chk2:
+        show_h10 = st.checkbox("1w", value=True, key="chk_h10")
+    with col_h_chk3:
+        show_h20 = st.checkbox("2w", value=True, key="chk_h20")
+    with col_h_chk4:
+        show_h30 = st.checkbox("3w", value=True, key="chk_h30")
+    with col_h_chk5:
+        show_h40 = st.checkbox("4w", value=True, key="chk_h40")
+
+    # Case à cocher pour la somme totale
+    show_sum = st.checkbox("Afficher la somme totale", value=True, key="chk_h_sum")
+
+    # Zones de texte / saisie pour paramétrer les phases de chaque composante
+    with st.expander("⚙️ Paramétrage individuel des phases ($\phi$)"):
+        col_p1, col_p2, col_p3, col_p4, col_p5 = st.columns(5)
+        with col_p1:
+            phase_05 = st.number_input("Phase 0.5ω", value=float(1.0), format="%.4f", key="phase_05_val")
+        with col_p2:
+            phase_10 = st.number_input("Phase 1.0ω", value=float(-2.11), format="%.4f", key="phase_10_val")
+        with col_p3:
+            phase_20 = st.number_input("Phase 2.0ω", value=float(-0.726), format="%.4f", key="phase_20_val")
+        with col_p4:
+            phase_30 = st.number_input("Phase 3.0ω", value=float(-0.413), format="%.4f", key="phase_30_val")
+        with col_p5:
+            phase_40 = st.number_input("Phase 4.0ω", value=float(-2.445), format="%.4f", key="phase_40_val")
+
+    # Calcul des ondes harmoniques modulées utilisant les phases personnalisées
+    wave_05 = (C1 * 0.4) * f_05_s * np.cos(0.5 * omega * lnT_full + phase_05)
+    wave_10 = C1 * f_10_s * np.cos(1.0 * omega * lnT_full + phase_10)
+    wave_20 = (C2 * 1.2) * f_20_s * np.cos(2.0 * omega * lnT_full + phase_20)
+    wave_30 = (C2 * 0.8) * f_30_s * np.cos(3.0 * omega * lnT_full + phase_30)
+    wave_40 = C2 * f_40_s * np.cos(4.0 * omega * lnT_full + phase_40)
+
+    # Calcul de la somme globale des harmoniques
+    wave_sum = wave_05 + wave_10 + wave_20 + wave_30 + wave_40
+
+    fig_harmonics = go.Figure()
+
+    if show_h05:
+        fig_harmonics.add_trace(go.Scatter(
+            x=df["Date"], y=wave_05, mode="lines", name="0.5ω",
+            line=dict(color="#1f77b4", width=1.5)
+        ))
+    if show_h10:
+        fig_harmonics.add_trace(go.Scatter(
+            x=df["Date"], y=wave_10, mode="lines", name="1.0ω",
+            line=dict(color="#ff7f0e", width=1.5)
+        ))
+    if show_h20:
+        fig_harmonics.add_trace(go.Scatter(
+            x=df["Date"], y=wave_20, mode="lines", name="2.0ω",
+            line=dict(color="#2ca02c", width=1.5)
+        ))
+    if show_h30:
+        fig_harmonics.add_trace(go.Scatter(
+            x=df["Date"], y=wave_30, mode="lines", name="3.0ω",
+            line=dict(color="#d62728", width=1.5)
+        ))
+    if show_h40:
+        fig_harmonics.add_trace(go.Scatter(
+            x=df["Date"], y=wave_40, mode="lines", name="4.0ω",
+            line=dict(color="#9467bd", width=1.5)
+        ))
+        
+    # Ajout de la courbe de la somme si la case est cochée
+    if show_sum:
+        fig_harmonics.add_trace(go.Scatter(
+            x=df["Date"], y=wave_sum, mode="lines", name="Somme Totale",
+            line=dict(color="#ffffff", width=2.5, dash="dash")
+        ))
+
+    fig_harmonics.update_layout(
+        template="plotly_dark", title="Ondes Harmoniques Modulées & Somme",
+        height=450, margin=dict(l=20, r=20, t=40, b=20),
+        yaxis=dict(title="Amplitude"), xaxis=dict(title="Date"),
+        legend=dict(orientation="h", y=1.15, x=0.5, xanchor="center", bgcolor="rgba(0,0,0,0.6)")
+    )
+    st.plotly_chart(fig_harmonics, use_container_width=True)
+    
 # ==============================================================================
 # SECTION : COURBE DE PRÉDICTION OOS (HORIZON PERSONNALISABLE)
 # ==============================================================================
