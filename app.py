@@ -1394,6 +1394,24 @@ with col_clock_omega:
         )
     )
 
+  # Cones rouges aux angles 45°, 135° et 225°
+  red_cones = [45, 135, 225]
+  for ang in red_cones:
+    th_vals = np.linspace(ang - cone_half_width, ang + cone_half_width, 30)
+    r_vals = np.full_like(th_vals, 6.5)
+
+    fig_clock_omega.add_trace(
+        go.Scatterpolar(
+            r=[0] + list(r_vals) + [0],
+            theta=[ang] + list(th_vals) + [ang],
+            fill="toself",
+            fillcolor="rgba(255, 0, 0, 0.2)",
+            line=dict(color="rgba(255, 0, 0, 0.6)", width=1.2),
+            hoverinfo="skip",
+            showlegend=False,
+        )
+    )
+
   fig_clock_omega.add_trace(
       go.Scatterpolar(
           r=df["clock_radius"],
@@ -1441,8 +1459,16 @@ with col_clock_omega:
               direction="clockwise",
               period=360,
               tickmode="array",
-              tickvals=[0, 90, 180, 270],
-              ticktext=["0°", "90°", "180°", "270°"],
+              tickvals=[0, 45, 90, 135, 180, 225, 270],
+              ticktext=[
+                  "0°",
+                  "45°",
+                  "90°",
+                  "135°",
+                  "180°",
+                  "225°",
+                  "270°",
+              ],
               gridcolor="rgba(255, 255, 255, 0.08)",
               linecolor="rgba(255, 255, 255, 0.15)",
           ),
