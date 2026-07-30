@@ -849,8 +849,9 @@ fig.add_trace(
 # ==============================================================================
 # QUADRILLAGE VERTICAL & GRADUATION EN ANGLE D'OMEGA (SANS REMPLISSAGE)
 # ==============================================================================
-lnT_min_val = float(np.min(x_trend))
-lnT_max_val = float(np.max(x_trend))
+# --- Sécurisation des bornes en espace ln(t) ---
+lnT_min_val = float(df["lnT"].min())
+lnT_max_val = float(np.log(future_days_arr[-1]))
 
 step_angle = np.pi / 2
 k_min = int(np.floor((omega * lnT_min_val) / step_angle))
@@ -861,7 +862,10 @@ for k in range(k_min, k_max + 1):
   angle_deg = int(round(np.rad2deg(k * step_angle)) % 360)
 
   if not log_time_axis:
-    x_val = GENESIS_DATE + timedelta(days=float(np.exp(lnT_line)))
+    days_val = float(np.exp(lnT_line))
+    if not np.isfinite(days_val) or days_val > 1e9:
+      continue
+    x_val = GENESIS_DATE + timedelta(days=days_val)
     if x_val < min_date or x_val > max_date + timedelta(
         days=int(horizon_years * 365)
     ):
@@ -1173,24 +1177,23 @@ with col_haz2:
   )
 
 # ==============================================================================
-# SECTION : LES DEUX HORLOGES DE CYCLE CÔTE À CÔTE
+# SECTION : LES DEUX HORLOGES DE CYCLE (AVEC AXES & ATTRACTEUR POWERLAW)
 # ==============================================================================
 st.markdown("---")
 st.subheader("🕒 Comparatif des Horloges de Cycle (Phase & Gravitation)")
 
 col_clock_grav, col_clock_omega = st.columns(2)
 
+# --- 1. HORLOGE GRAVITATIONNELLE (GAUCHE) ---
 with col_clock_grav:
-  st.markdown("##### 🌍 Horloge Gravitationnelle (Z-Score vs Momentum)")
-  with st.expander("❓ Guide (Gravitationnelle)"):
-    st.markdown("""
-        * **Axe X** : Position (Z-Score Power Law).
-        * **Axe Y** : Vitesse / Momentum (Variation du Z-Score).
-        """)
-
+  st.markdown(
+      "##### 🌍 Horloge Gravitationnelle — Attracteur PowerLaw (Z-Score vs"
+      " Momentum)"
+  )
   df["z_velocity"] = df["z_score_pl"].diff(30).fillna(0)
-
   fig_clock = go.Figure()
+
+  # Trace de l'orbite (Palette Inferno)
   fig_clock.add_trace(
       go.Scatter(
           x=df["z_score_pl"],
@@ -1200,48 +1203,69 @@ with col_clock_grav:
               size=3,
               color=df["Days"],
               colorscale="Inferno",
-              showscale=False,
-              opacity=0.7,
+              opacity=0.8,
           ),
-          line=dict(color="rgba(255, 153, 0, 0.3)", width=1),
-          name="Trajectoire",
+          line=dict(color="rgba(255, 153, 0, 0.35)", width=1.2),
+          showlegend=False,
       )
   )
 
+  # Axes en pointillé gris (X=0 et Y=0)
+  fig_clock.add_hline(
+      y=0,
+      line_dash="dash",
+      line_color="rgba(255, 255, 255, 0.4)",
+      line_width=1,
+  )
+  fig_clock.add_vline(
+      x=0,
+      line_dash="dash",
+      line_color="rgba(255, 255, 255, 0.4)",
+      line_width=1,
+  )
+
+  # Point ACTUEL
   latest_row = df.iloc[-1]
   fig_clock.add_trace(
       go.Scatter(
           x=[latest_row["z_score_pl"]],
           y=[latest_row["z_velocity"]],
           mode="markers+text",
-          marker=dict(size=14, color="#00FF7F", symbol="diamond"),
+          marker=dict(
+              size=14,
+              color="#00FF7F",
+              symbol="diamond",
+              line=dict(color="#000000", width=1),
+          ),
           text=["📍 ACTUEL"],
           textposition="top center",
-          textfont=dict(color="#00FF7F", size=10),
-          name="Position",
+          textfont=dict(color="#00FF7F", size=11, family="sans-serif"),
+          showlegend=False,
       )
   )
-
-  fig_clock.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.3)")
-  fig_clock.add_vline(x=0, line_dash="dash", line_color="rgba(255,255,255,0.3)")
 
   fig_clock.update_layout(
       template="plotly_dark",
       height=480,
       margin=dict(l=10, r=10, t=20, b=10),
-      xaxis_title="Position (Z-Score)",
-      yaxis_title="Vitesse / Momentum",
-      showlegend=False,
+      plot_bgcolor="rgba(10, 10, 15, 0.6)",
+      paper_bgcolor="rgba(0,0,0,0)",
+      xaxis=dict(
+          title="Position (Z-Score)",
+          gridcolor="rgba(255, 255, 255, 0.08)",
+          linecolor="rgba(255, 255, 255, 0.15)",
+      ),
+      yaxis=dict(
+          title="Vitesse / Momentum",
+          gridcolor="rgba(255, 255, 255, 0.08)",
+          linecolor="rgba(255, 255, 255, 0.15)",
+      ),
   )
   st.plotly_chart(fig_clock, use_container_width=True)
 
+# --- 2. HORLOGE LOG-PÉRIODIQUE (DROITE) ---
 with col_clock_omega:
   st.markdown("##### ⏱️ Horloge Log-Périodique (Phase $\\omega \\cdot \\ln(t)$)")
-  with st.expander("❓ Guide (Omega)"):
-    st.markdown("""
-        * **Cadran** : Progression angulaire $\\phi = \\omega \\cdot \\ln(t) \\pmod{2\\pi}$.
-        * **Rayon** : Compression temporelle vers la singularité.
-        """)
 
   df["log_phase"] = omega * df["lnT"]
   df["clock_angle"] = (df["log_phase"] % (2 * np.pi)) / (2 * np.pi) * 360
@@ -1249,11 +1273,12 @@ with col_clock_omega:
 
   fig_clock_omega = go.Figure()
 
+  # Secteurs de fond
   sectors = [
-      (0, 90, "rgba(255, 136, 9, 0.3)"),
-      (90, 180, "rgba(173, 20, 20, 0.3)"),
-      (180, 270, "rgba(255, 136, 9, 0.3)"),
-      (270, 360, "rgba(28, 173, 20, 0.3)"),
+      (0, 90, "rgba(255, 136, 9, 0.15)"),
+      (90, 180, "rgba(173, 20, 20, 0.15)"),
+      (180, 270, "rgba(255, 136, 9, 0.15)"),
+      (270, 360, "rgba(34, 177, 76, 0.15)"),
   ]
 
   for start_th, end_th, fill_col in sectors:
@@ -1272,6 +1297,29 @@ with col_clock_omega:
         )
     )
 
+  # Cônes cibles
+  target_cones = [0, 270]
+  cone_half_width = 8.0
+
+  for ang in target_cones:
+    th_vals = np.linspace(ang - cone_half_width, ang + cone_half_width, 30)
+    if ang == 270:
+      th_vals = th_vals[::-1]
+    r_vals = np.full_like(th_vals, 6.5)
+
+    fig_clock_omega.add_trace(
+        go.Scatterpolar(
+            r=[0] + list(r_vals) + [0],
+            theta=[ang] + list(th_vals) + [ang],
+            fill="toself",
+            fillcolor="rgba(0, 255, 127, 0.2)",
+            line=dict(color="rgba(0, 255, 127, 0.6)", width=1.2),
+            hoverinfo="skip",
+            showlegend=False,
+        )
+    )
+
+  # Trace principale de l'orbite spirale (Palette Inferno)
   fig_clock_omega.add_trace(
       go.Scatterpolar(
           r=df["clock_radius"],
@@ -1281,54 +1329,40 @@ with col_clock_omega:
               size=3,
               color=df["Days"],
               colorscale="Inferno",
-              colorbar=dict(title="Temps", len=0.5),
+              colorbar=dict(title="Temps", len=0.4, thickness=10),
               opacity=0.8,
           ),
-          line=dict(color="rgba(255, 153, 0, 0.6)", width=1.5),
+          line=dict(color="rgba(255, 153, 0, 0.5)", width=1.5),
           name="Orbite",
       )
   )
 
-  latest_angle = df["clock_angle"].iloc[-1]
-  latest_radius = df["clock_radius"].iloc[-1]
-
+  # Point ACTUEL
   fig_clock_omega.add_trace(
       go.Scatterpolar(
-          r=[latest_radius],
-          theta=[latest_angle],
+          r=[df["clock_radius"].iloc[-1]],
+          theta=[df["clock_angle"].iloc[-1]],
           mode="markers+text",
-          marker=dict(size=14, color="#00FF7F", symbol="diamond"),
+          marker=dict(
+              size=14,
+              color="#00FF7F",
+              symbol="diamond",
+              line=dict(color="#000000", width=1),
+          ),
           text=["📍 ACTUEL"],
           textposition="top center",
-          textfont=dict(color="#00FF7F", size=10),
-          name="Position",
+          textfont=dict(color="#00FF7F", size=11, family="sans-serif"),
+          showlegend=False,
       )
   )
-
-  angles_config = [
-      (0, "#00FF7F", "solid", 1.5),
-      (90, "#FF4B4B", "solid", 1.2),
-      (180, "#FF4B4B", "solid", 1.5),
-      (270, "#00FF7F", "solid", 1.5),
-  ]
-
-  for ang, col, dash_style, w in angles_config:
-    fig_clock_omega.add_trace(
-        go.Scatterpolar(
-            r=[0, 6.5],
-            theta=[ang, ang],
-            mode="lines",
-            line=dict(color=col, width=w, dash=dash_style),
-            hoverinfo="skip",
-            showlegend=False,
-        )
-    )
 
   fig_clock_omega.update_layout(
       template="plotly_dark",
       height=480,
       margin=dict(l=10, r=10, t=20, b=30),
+      paper_bgcolor="rgba(0,0,0,0)",
       polar=dict(
+          bgcolor="rgba(10, 10, 15, 0.6)",
           radialaxis=dict(visible=False, range=[0, 6.5]),
           angularaxis=dict(
               direction="clockwise",
@@ -1336,12 +1370,13 @@ with col_clock_omega:
               tickmode="array",
               tickvals=[0, 90, 180, 270],
               ticktext=["0°", "90°", "180°", "270°"],
+              gridcolor="rgba(255, 255, 255, 0.08)",
+              linecolor="rgba(255, 255, 255, 0.15)",
           ),
       ),
       showlegend=False,
   )
   st.plotly_chart(fig_clock_omega, use_container_width=True)
-
 # ==============================================================================
 # SECTION : DISTRIBUTION EMPIRIQUE DES RÉSIDUS VS LOI DE STUDENT
 # ==============================================================================
