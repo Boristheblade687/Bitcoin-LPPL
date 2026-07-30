@@ -849,7 +849,6 @@ fig.add_trace(
 # ==============================================================================
 # QUADRILLAGE VERTICAL & GRADUATION EN ANGLE D'OMEGA (SANS REMPLISSAGE)
 # ==============================================================================
-# --- Sécurisation des bornes en espace ln(t) ---
 lnT_min_val = float(df["lnT"].min())
 lnT_max_val = float(np.log(future_days_arr[-1]))
 
@@ -1012,8 +1011,9 @@ fig.update_layout(
         bgcolor="rgba(0,0,0,0.5)",
     ),
 )
+
 # ==============================================================================
-# 8. DASHBOARD & MÉTRIQUES COMPLÈTES
+# 8. DASHBOARD & MÉTRIQUES COMPLÈTES (AVEC BULLES INFORMATIVES '?' INTÉGRÉES)
 # ==============================================================================
 n_obs = len(df)
 k_params = 7
@@ -1066,9 +1066,27 @@ with col_dash:
           "Prix Actuel BTC",
           f"${current_btc_price:,.2f}",
           delta=f"{price_delta:+.2f}% (24h)",
+          help=(
+              "❓ Dernier cours de clôture disponible pour le Bitcoin et"
+              " variation sur les 24 dernières heures."
+          ),
       )
-      st.metric("Prix Théorique (LPPL)", f"${current_model_price:,.2f}")
-      st.metric("Z-Score LPPL", f"{current_z_score:.2f}σ")
+      st.metric(
+          "Prix Théorique (LPPL)",
+          f"${current_model_price:,.2f}",
+          help=(
+              "❓ Valeur théorique du prix calculée par le modèle combiné"
+              " Power Law et LPPL à la date actuelle."
+          ),
+      )
+      st.metric(
+          "Z-Score LPPL",
+          f"{current_z_score:.2f}σ",
+          help=(
+              "❓ Écart normalisé (en écarts-types σ) entre le prix réel et le"
+              " prix théorique du modèle LPPL."
+          ),
+      )
 
   with st.container(border=True):
     st.subheader("🎯 Valuation")
@@ -1090,21 +1108,70 @@ with col_dash:
     st.subheader("📊 Fit Quality & Robustesse")
 
     c_g1, c_g2 = st.columns(2)
-    c_g1.metric("R² Global", f"{r2_global:.4f}")
-    c_g2.metric("R² Ajusté", f"{r2_adj:.4f}")
+    c_g1.metric(
+        "R² Global",
+        f"{r2_global:.4f}",
+        help=(
+            "❓ Coefficient de détermination global évaluant la capacité du"
+            " modèle à expliquer la variance historique."
+        ),
+    )
+    c_g2.metric(
+        "R² Ajusté",
+        f"{r2_adj:.4f}",
+        help=(
+            "❓ R² pénalisé tenant compte du nombre de paramètres du modèle"
+            " pour éviter le sur-apprentissage."
+        ),
+    )
 
-    st.metric("Forward R² (1Y OOS)", f"{r2_oos_1y:.4f}")
+    st.metric(
+        "Forward R² (1Y OOS)",
+        f"{r2_oos_1y:.4f}",
+        help=(
+            "❓ Coefficient de détermination Out-Of-Sample calculé en"
+            " prédiction réelle sur un horizon de 1 an."
+        ),
+    )
 
     st.markdown("---")
     st.caption("📐 **Métriques d'Erreur & Généralisation**")
 
     c_m3, c_m4 = st.columns(2)
-    c_m3.metric("RMSE In-Sample", f"{rmse_pct:.1f}%")
-    c_m4.metric("MAE In-Sample", f"{mae_pct:.1f}%")
+    c_m3.metric(
+        "RMSE In-Sample",
+        f"{rmse_pct:.1f}%",
+        help=(
+            "❓ Racine de l'erreur quadratique moyenne en pourcentage sur"
+            " l'ensemble des données d'entraînement."
+        ),
+    )
+    c_m4.metric(
+        "MAE In-Sample",
+        f"{mae_pct:.1f}%",
+        help=(
+            "❓ Erreur absolue moyenne en pourcentage sur l'ensemble de"
+            " l'historique d'entraînement."
+        ),
+    )
 
     c_m5, c_m6 = st.columns(2)
-    c_m5.metric("OOS RMSE (1Y)", f"{wf_rmse_1y_val:.1f}%")
-    c_m6.metric("Ratio Out/In", f"{gen_ratio:.2f}x")
+    c_m5.metric(
+        "OOS RMSE (1Y)",
+        f"{wf_rmse_1y_val:.1f}%",
+        help=(
+            "❓ Erreur quadratique moyenne en prédiction réelle"
+            " (Out-Of-Sample) projetée à 1 an."
+        ),
+    )
+    c_m6.metric(
+        "Ratio Out/In",
+        f"{gen_ratio:.2f}x",
+        help=(
+            "❓ Rapport entre l'erreur de prédiction OOS et l'erreur In-Sample"
+            " (mesure la dégradation de performance hors échantillon)."
+        ),
+    )
 
 # ==============================================================================
 # SECTION : INDICATEUR DE RISQUE DE RUPTURE (HAZARD RATE / BUBBLE INDEX)
@@ -1168,7 +1235,14 @@ st.plotly_chart(fig_hazard, use_container_width=True)
 
 col_haz1, col_haz2 = st.columns([1, 2])
 with col_haz1:
-  st.metric("Indice de Risque Actuel", f"{current_hazard:.1f} / 100")
+  st.metric(
+      "Indice de Risque Actuel",
+      f"{current_hazard:.1f} / 100",
+      help=(
+          "❓ Score synthétique de 0 à 100 évaluant la criticité et le risque"
+          " imminent de rupture."
+      ),
+  )
 with col_haz2:
   st.markdown(
       f"**Statut du Régime :** <span"
@@ -1177,10 +1251,16 @@ with col_haz2:
   )
 
 # ==============================================================================
-# SECTION : LES DEUX HORLOGES DE CYCLE (AVEC AXES & ATTRACTEUR POWERLAW)
+# SECTION : LES DEUX HORLOGES DE CYCLE
 # ==============================================================================
 st.markdown("---")
 st.subheader("🕒 Comparatif des Horloges de Cycle (Phase & Gravitation)")
+
+with st.expander("❓ Guide de Lecture - Horloges de Cycle"):
+  st.markdown("""
+    * **Horloge Gravitationnelle (Gauche)** : Espace de phase représentant le Z-Score de la Power Law en abscisse face à sa vitesse de variation (Momentum) en ordonnée. Le point vert (**📍 ACTUEL**) indique la position actuelle par rapport à l'attracteur fondamental.
+    * **Horloge Log-Périodique (Droite)** : Représentation polaire de la phase angulaire $\\omega \\cdot \\ln(t)$. Les cadrans de couleur et les secteurs cibles verts permettent de suivre la progression et la résonance des sous-cycles log-périodiques.
+    """)
 
 col_clock_grav, col_clock_omega = st.columns(2)
 
@@ -1193,7 +1273,6 @@ with col_clock_grav:
   df["z_velocity"] = df["z_score_pl"].diff(30).fillna(0)
   fig_clock = go.Figure()
 
-  # Trace de l'orbite (Palette Inferno)
   fig_clock.add_trace(
       go.Scatter(
           x=df["z_score_pl"],
@@ -1210,7 +1289,6 @@ with col_clock_grav:
       )
   )
 
-  # Axes en pointillé gris (X=0 et Y=0)
   fig_clock.add_hline(
       y=0,
       line_dash="dash",
@@ -1224,7 +1302,6 @@ with col_clock_grav:
       line_width=1,
   )
 
-  # Point ACTUEL
   latest_row = df.iloc[-1]
   fig_clock.add_trace(
       go.Scatter(
@@ -1273,7 +1350,6 @@ with col_clock_omega:
 
   fig_clock_omega = go.Figure()
 
-  # Secteurs de fond
   sectors = [
       (0, 90, "rgba(255, 136, 9, 0.15)"),
       (90, 180, "rgba(173, 20, 20, 0.15)"),
@@ -1297,9 +1373,8 @@ with col_clock_omega:
         )
     )
 
-  # Cônes cibles
   target_cones = [0, 270]
-  cone_half_width = 8.0
+  cone_half_width = 14.0
 
   for ang in target_cones:
     th_vals = np.linspace(ang - cone_half_width, ang + cone_half_width, 30)
@@ -1319,7 +1394,6 @@ with col_clock_omega:
         )
     )
 
-  # Trace principale de l'orbite spirale (Palette Inferno)
   fig_clock_omega.add_trace(
       go.Scatterpolar(
           r=df["clock_radius"],
@@ -1337,7 +1411,6 @@ with col_clock_omega:
       )
   )
 
-  # Point ACTUEL
   fig_clock_omega.add_trace(
       go.Scatterpolar(
           r=[df["clock_radius"].iloc[-1]],
@@ -1377,6 +1450,7 @@ with col_clock_omega:
       showlegend=False,
   )
   st.plotly_chart(fig_clock_omega, use_container_width=True)
+
 # ==============================================================================
 # SECTION : DISTRIBUTION EMPIRIQUE DES RÉSIDUS VS LOI DE STUDENT
 # ==============================================================================
@@ -1435,10 +1509,21 @@ with col_dist2:
       f"Ce graphique superpose l'histogramme réel des erreurs de prédiction"
       f" avec la loi de Student ajustée (df = {df_t:.2f})."
   )
-  st.metric("Degrés de liberté (Student df)", f"{df_t:.2f}")
+  st.metric(
+      "Degrés de liberté (Student df)",
+      f"{df_t:.2f}",
+      help=(
+          "❓ Paramètre de forme de la loi de Student mesurant l'épaisseur"
+          " des queues de distribution."
+      ),
+  )
   st.metric(
       "Kurtosis des Résidus (%)",
       f"{kurtosis(res_pct_clean):.2f}" if len(res_pct_clean) > 0 else "N/A",
+      help=(
+          "❓ Mesure l'aplatissement de la distribution des erreurs par"
+          " rapport à une loi normale."
+      ),
   )
 
 with col_dist1:
@@ -1828,7 +1913,7 @@ with col_proj:
   csv_data = df_export.to_csv(index=False).encode("utf-8")
 
   st.download_button(
-      label="📥 Télécharger les projections (CSV)",
+      label="📥 Télécharger les projos (CSV)",
       data=csv_data,
       file_name=f"btc_lppl_projections_{last_date.strftime('%Y%m%d')}.csv",
       mime="text/csv",
@@ -1840,6 +1925,14 @@ with col_proj:
 # ==============================================================================
 st.markdown("---")
 st.subheader("🤖 Simulateur de DCA Intelligent (Smart DCA - Long Terme)")
+
+with st.expander("❓ Guide de Lecture - Simulateur Smart DCA"):
+  st.markdown("""
+    * **DCA Classique (Fixe)** : Investit un montant fixe à intervalles réguliers (ex: chaque semaine ou chaque mois), sans tenir compte des conditions de marché.
+    * **Smart DCA (Basé sur Power Law)** : Module dynamiquement le montant des achats en fonction du Z-Score de la Power Law :
+      * **Sous-évaluation extrême ($Z < -1.0$)** : Multiplie l'achat de base par $2.0$ pour accumuler davantage à bas prix.
+      * **Surchauffe / Bulle ($Z > 2.0$)** : Suspend les achats ou réduit la mise de moitié selon l'option choisie pour éviter d'acheter au sommet.
+    """)
 
 col_dca_opt1, col_dca_opt2, col_dca_opt3 = st.columns(3)
 with col_dca_opt1:
@@ -1937,17 +2030,46 @@ if not df_dca_res.empty:
   with col_res1:
     st.markdown("### 📊 DCA Classique (Fixe)")
     c1, c2, c3 = st.columns(3)
-    c1.metric("Total Investi", f"${fin_inv_c:,.0f}")
-    c2.metric("Valeur Portefeuille", f"${fin_val_c:,.0f}")
-    c3.metric("Performance", f"{pnl_c:+.1f}%")
+    c1.metric(
+        "Total Investi",
+        f"${fin_inv_c:,.0f}",
+        help="❓ Montant total cumulé investi via la stratégie classique fixe.",
+    )
+    c2.metric(
+        "Valeur Portefeuille",
+        f"${fin_val_c:,.0f}",
+        help="❓ Valeur actuelle totale des Bitcoins accumulés au prix du marché.",
+    )
+    c3.metric(
+        "Performance",
+        f"{pnl_c:+.1f}%",
+        help="❓ Rendement en pourcentage (Plus-value / Capital investi).",
+    )
 
   with col_res2:
     st.markdown("### 🧠 Smart DCA (Basé sur Power Law)")
     c1, c2, c3 = st.columns(3)
-    c1.metric("Total Investi", f"${fin_inv_s:,.0f}")
-    c2.metric("Valeur Portefeuille", f"${fin_val_s:,.0f}")
+    c1.metric(
+        "Total Investi",
+        f"${fin_inv_s:,.0f}",
+        help=(
+            "❓ Montant total investi modulé dynamiquement selon les z-scores"
+            " de la Power Law."
+        ),
+    )
+    c2.metric(
+        "Valeur Portefeuille",
+        f"${fin_val_s:,.0f}",
+        help="❓ Valeur actuelle totale du portefeuille Smart DCA.",
+    )
     c3.metric(
-        "Performance", f"{pnl_s:+.1f}%", delta=f"{pnl_s - pnl_c:+.1f}% vs Fixe"
+        "Performance",
+        f"{pnl_s:+.1f}%",
+        delta=f"{pnl_s - pnl_c:+.1f}% vs Fixe",
+        help=(
+            "❓ Rendement global de la stratégie Smart DCA par rapport au"
+            " capital investi."
+        ),
     )
 
   fig_smart_dca = go.Figure()
@@ -1989,6 +2111,7 @@ else:
   st.warning(
       "Aucune donnée disponible à partir de la date de début sélectionnée."
   )
+
 # ==============================================================================
 # SECTION FINALE : SCHÉMA CONCEPTUEL (TAS DE SABLE)
 # ==============================================================================
@@ -2002,4 +2125,3 @@ st.image(
         " Bitcoin – Inspiré des travaux de Didier Sornette"
     ),
 )
-
