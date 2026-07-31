@@ -21,13 +21,13 @@ st.title("₿ Bitcoin PowerLaw + LPPL (2 Harmonics) - Advanced Analytics")
 
 # Initialisation des variables dans le Session State
 DEFAULT_PARAMS = {
-    "A": -39.18,
-    "B": 5.845,
-    "C1": 0.62,
-    "omega": 8.635,
-    "phi1": -2.11,
-    "C2": 0.267,
-    "phi2": -3.0,
+    "A": -38.88,
+    "B": 5.804,
+    "C1": 0.6,
+    "omega": 8.628,
+    "phi1": -1.99,
+    "C2": 0.27,
+    "phi2": -2.77,
 }
 
 for key, val in DEFAULT_PARAMS.items():
@@ -353,12 +353,10 @@ if st.sidebar.button(
   lnT_vec = df["lnT"].to_numpy()
   act_log_vec = df["actualLog"].to_numpy()
 
-
   def loss_func_fast(params):
     p_A, p_B, p_C1, p_omega, p_p1, p_C2, p_p2 = params
     preds = f_log_model(lnT_vec, p_A, p_B, p_C1, p_omega, p_p1, p_C2, p_p2)
     return np.mean((act_log_vec - preds) ** 2)
-
 
   bounds = [
       (-45.0, -25.0),
@@ -404,8 +402,7 @@ if st.sidebar.button(
 if "opt_msg" in st.session_state:
   st.sidebar.success("Ajustement réussi !")
   st.sidebar.info(st.session_state["opt_msg"])
-
-
+  
 # ==============================================================================
 # 5. CALCULS GLOBAUX, POWER LAW, RÉSIDUS & INDICE DE RISQUE DE RUPTURE
 # ==============================================================================
@@ -2342,71 +2339,72 @@ st.markdown("---")
 col_wf, col_proj = st.columns(2)
 
 with col_wf:
-  st.subheader("📈 Performance Walk-Forward (Globale)")
+    st.subheader("📈 Performance Walk-Forward (Globale)")
 
-  days_arr = df["Days"].values
-  close_arr = df["Close"].values
+    days_arr = df["Days"].values
+    close_arr = df["Close"].values
 
-  wf_data = []
-  for h in [365, 730, 1095]:
-    acc, bull, edge, mae_h, rmse_h, r2_oos = run_wf_analysis_fast(
-        h, days_arr, close_arr, A, B, C1, omega, phi1, C2, phi2
-    )
-    wf_data.append({
-        "Horizon": f"{h}d",
-        "Forward R²": f"{r2_oos:.3f}",
-        "Dir Acc": f"{acc:.0f}%",
-        "Edge": f"{edge:.1f}%",
-        "MAE OOS": f"{mae_h:.1f}%",
-        "RMSE OOS": f"{rmse_h:.1f}%",
-    })
-  st.dataframe(
-      pd.DataFrame(wf_data), hide_index=True, use_container_width=True
-  )
+    wf_data = []
+    for h in [365, 730, 1095]:
+        acc, bull, edge, mae_h, rmse_h, r2_oos = run_wf_analysis_fast(
+            h, days_arr, close_arr, A, B, C1, omega, phi1, C2, phi2
+        )
+        wf_data.append({
+            "Horizon": f"{h // 365} An(s)",
+            "Directional Accuracy (%)": f"{acc:.1f}%",
+            "Bullish Bias (%)": f"{bull:.1f}%",
+            "Alpha Edge (%)": f"{edge:+.1f}%",
+            "OOS MAE (%)": f"{mae_h:.1f}%",
+            "OOS RMSE (%)": f"{rmse_h:.1f}%",
+            "OOS R²": f"{r2_oos:.4f}",
+        })
+    df_wf_table = pd.DataFrame(wf_data)
+    st.dataframe(df_wf_table, hide_index=True, use_container_width=True)
 
 with col_proj:
-  st.subheader("🎯 Objectifs de Prix & Export")
+    st.subheader("🔮 Projections Futures & Export")
 
-  proj_data = []
-  export_rows = []
-  sigma_cone = 1.0
+    proj_data = []
+    export_rows = []
+    sigma_cone = 1.0
 
-  for yr in range(1, horizon_years + 1):
-    idx = (yr * 365) - 1
-    if idx < len(future_dates_arr):
-      date_target = future_dates_arr[idx]
-      proj_price = future_lppl[idx]
-      uncert = dynamic_uncertainty[idx]
+    for yr in range(1, horizon_years + 1):
+        idx = (yr * 365) - 1
+        if idx < len(future_dates_arr):
+            date_target = future_dates_arr[idx]
+            proj_price = future_lppl[idx]
+            uncert = dynamic_uncertainty[idx]
 
-      cone_lower = proj_price / np.exp(sigma_cone * uncert)
-      cone_upper = proj_price * np.exp(sigma_cone * uncert)
+            cone_lower = proj_price / np.exp(sigma_cone * uncert)
+            cone_upper = proj_price * np.exp(sigma_cone * uncert)
 
-      proj_data.append({
-          "Horizon": f"{yr}Y",
-          "LPPL Target": f"${proj_price:,.0f}",
-          "Cône Projection (±1σ)": f"${cone_lower:,.0f} - ${cone_upper:,.0f}",
-      })
-      export_rows.append({
-          "Horizon": f"{yr}Y",
-          "Target_Date": date_target.strftime("%Y-%m-%d"),
-          "LPPL_Price_USD": round(proj_price, 2),
-          "Cone_Lower_USD": round(cone_lower, 2),
-          "Cone_Upper_USD": round(cone_upper, 2),
-      })
+            proj_data.append({
+                "Horizon": f"{yr}Y",
+                "LPPL Target": f"${proj_price:,.0f}",
+                "Cône Projection (±1σ)": f"${cone_lower:,.0f} - ${cone_upper:,.0f}",
+            })
+            export_rows.append({
+                "Horizon": f"{yr}Y",
+                "Target_Date": date_target.strftime("%Y-%m-%d"),
+                "LPPL_Price_USD": round(proj_price, 2),
+                "Cone_Lower_USD": round(cone_lower, 2),
+                "Cone_Upper_USD": round(cone_upper, 2),
+            })
 
-  st.dataframe(
-      pd.DataFrame(proj_data), hide_index=True, use_container_width=True
-  )
+    st.dataframe(
+        pd.DataFrame(proj_data), hide_index=True, use_container_width=True
+    )
 
-  df_export = pd.DataFrame(export_rows)
-  csv_data = df_export.to_csv(index=False).encode("utf-8")
+    df_export = pd.DataFrame(export_rows)
+    csv_data = df_export.to_csv(index=False).encode("utf-8")
 
-  st.download_button(
-      label="📥 Télécharger les projos (CSV)",
-      data=csv_data,
-      file_name=f"btc_lppl_projections_{last_date.strftime('%Y%m%d')}.csv",
-      mime="text/csv",
-  )
+    st.download_button(
+        label="📥 Télécharger les projos (CSV)",
+        data=csv_data,
+        file_name=f"btc_lppl_projections_{last_date.strftime('%Y%m%d')}.csv",
+        mime="text/csv",
+        help="Exporte l'ensemble des projections futures et bandes de tendance au format CSV.",
+    )
 
 # ==============================================================================
 # SECTION : SIMULATEUR DE DCA INTELLIGENT (SMART DCA)
