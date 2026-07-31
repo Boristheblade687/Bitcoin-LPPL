@@ -21,13 +21,13 @@ st.title("₿ Bitcoin PowerLaw + LPPL (2 Harmonics) - Advanced Analytics")
 
 # Initialisation des variables dans le Session State
 DEFAULT_PARAMS = {
-    "A": -38.88,
+    "A": -38.86,
     "B": 5.804,
-    "C1": 0.6,
-    "omega": 8.628,
-    "phi1": -1.99,
+    "C1": 0.62,
+    "omega": 8.626,
+    "phi1": -1.98,
     "C2": 0.27,
-    "phi2": -2.77,
+    "phi2": -2.71,
 }
 
 for key, val in DEFAULT_PARAMS.items():
@@ -336,7 +336,6 @@ def calculate_bubble_hazard_index(df_data, window=180):
   d["Bubble_Hazard_Index"] = np.clip(hazard_index, 0.0, 100.0)
   return d
 
-
 # ==============================================================================
 # 4. OPTIMISATION GLOBALE AUTOMATIQUE (DIFFERENTIAL EVOLUTION)
 # ==============================================================================
@@ -350,59 +349,62 @@ if st.sidebar.button(
         " les paramètres de manière robuste."
     ),
 ):
-  lnT_vec = df["lnT"].to_numpy()
-  act_log_vec = df["actualLog"].to_numpy()
+    lnT_vec = df["lnT"].to_numpy()
+    act_log_vec = df["actualLog"].to_numpy()
 
-  def loss_func_fast(params):
-    p_A, p_B, p_C1, p_omega, p_p1, p_C2, p_p2 = params
-    preds = f_log_model(lnT_vec, p_A, p_B, p_C1, p_omega, p_p1, p_C2, p_p2)
-    return np.mean((act_log_vec - preds) ** 2)
+    def loss_func_fast(params):
+        p_A, p_B, p_C1, p_omega, p_p1, p_C2, p_p2 = params
+        preds = f_log_model(lnT_vec, p_A, p_B, p_C1, p_omega, p_p1, p_C2, p_p2)
+        return np.mean((act_log_vec - preds) ** 2)
 
-  bounds = [
-      (-45.0, -25.0),
-      (4.5, 6.8),
-      (0.0, 1.5),
-      (4.0, 16.0),
-      (-np.pi, np.pi),
-      (0.0, 0.8),
-      (-np.pi, np.pi),
-  ]
+    bounds = [
+        (-45.0, -25.0),
+        (4.5, 6.8),
+        (0.0, 1.5),
+        (8.0, 9.0),
+        (-np.pi, np.pi),
+        (0.0, 0.8),
+        (-np.pi, np.pi),
+    ]
 
-  with st.spinner(
-      "Optimisation globale en cours (Recherche globale + Polish)..."
-  ):
-    res = differential_evolution(
-        loss_func_fast,
-        bounds=bounds,
-        strategy="best1bin",
-        maxiter=200,
-        popsize=15,
-        polish=True,
-        seed=42,
-    )
+    with st.spinner(
+        "Optimisation globale en cours (Recherche globale + Polish)..."
+    ):
+        res = differential_evolution(
+            loss_func_fast,
+            bounds=bounds,
+            strategy="best1bin",
+            maxiter=200,
+            popsize=15,
+            polish=True,
+            seed=42,
+        )
 
-  if res.success:
-    st.session_state["A"] = float(res.x[0])
-    st.session_state["B"] = float(res.x[1])
-    st.session_state["C1"] = float(res.x[2])
-    st.session_state["omega"] = float(res.x[3])
-    st.session_state["phi1"] = float(res.x[4])
-    st.session_state["C2"] = float(res.x[5])
-    st.session_state["phi2"] = float(res.x[6])
+    if res.success:
+        # Noms des paramètres de base et de leurs widgets associés
+        params_keys = ["A", "B", "C1", "omega", "phi1", "C2", "phi2"]
+        
+        for i, k in enumerate(params_keys):
+            val = float(res.x[i])
+            # Mise à jour de la variable de session principale
+            st.session_state[k] = val
+            # 🔑 Suppression de la clé du widget pour éviter l'StreamlitAPIException
+            st.session_state.pop(f"input_{k}", None)
 
-    st.session_state["opt_msg"] = (
-        f"A: {res.x[0]:.2f} | B: {res.x[1]:.3f}\n"
-        f"C1: {res.x[2]:.2f} | ω: {res.x[3]:.3f} | φ1: {res.x[4]:.2f}\n"
-        f"C2: {res.x[5]:.2f} | φ2: {res.x[6]:.2f}"
-    )
-    st.rerun()
-  else:
-    st.sidebar.error("L'optimisation globale a échoué.")
+        st.session_state["opt_msg"] = (
+            f"A: {res.x[0]:.2f} | B: {res.x[1]:.3f}\n"
+            f"C1: {res.x[2]:.2f} | ω: {res.x[3]:.3f} | φ1: {res.x[4]:.2f}\n"
+            f"C2: {res.x[5]:.2f} | φ2: {res.x[6]:.2f}"
+        )
+        st.rerun()
+    else:
+        st.sidebar.error("L'optimisation globale a échoué.")
 
 if "opt_msg" in st.session_state:
-  st.sidebar.success("Ajustement réussi !")
-  st.sidebar.info(st.session_state["opt_msg"])
-  
+    st.sidebar.success("Ajustement réussi !")
+    st.sidebar.info(st.session_state["opt_msg"])
+
+
 # ==============================================================================
 # 5. CALCULS GLOBAUX, POWER LAW, RÉSIDUS & INDICE DE RISQUE DE RUPTURE
 # ==============================================================================
@@ -1792,7 +1794,7 @@ with col_left:
 # COLONNE DROITE : VISUALISATION INTERACTIVE DES HARMONIQUES
 # ==============================================================================
 with col_right:
-  st.subheader("🎼 Harmoniques par Mode ($0.5\omega$ à $4.0\omega$)")
+  st.subheader("🎼 Harmoniques par Mode")
 
   with st.expander("❓ Guide de lecture - Harmoniques"):
     st.markdown("""
@@ -1830,7 +1832,7 @@ with col_right:
       )
     with col_p2:
       phase_10 = st.number_input(
-          "Phase 1.0ω", value=float(-2.11), format="%.4f", key="phase_10_val"
+          "Phase 1.0ω", value=float(-1.98), format="%.4f", key="phase_10_val"
       )
     with col_p3:
       phase_20 = st.number_input(
@@ -1838,11 +1840,11 @@ with col_right:
       )
     with col_p4:
       phase_30 = st.number_input(
-          "Phase 3.0ω", value=float(-0.413), format="%.4f", key="phase_30_val"
+          "Phase 3.0ω", value=float(-0.35), format="%.4f", key="phase_30_val"
       )
     with col_p5:
       phase_40 = st.number_input(
-          "Phase 4.0ω", value=float(-2.445), format="%.4f", key="phase_40_val"
+          "Phase 4.0ω", value=float(-2.71), format="%.4f", key="phase_40_val"
       )
 
   # Calcul des ondes harmoniques modulées utilisant les phases personnalisées
