@@ -1502,6 +1502,96 @@ with col_clock_omega:
   )
   st.plotly_chart(fig_clock_omega, use_container_width=True)
 
+# ==============================================================================
+# SECTION : PROFIL DE VITESSE TYPIQUE EN FONCTION DE LA PHASE DU CYCLE
+# ==============================================================================
+st.markdown("---")
+st.subheader(
+    "⚡ Profil de Vitesse Typique en Fonction de la Phase du Cycle"
+)
+
+with st.expander("❓ Guide de Lecture - Vitesse par Phase de Cycle"):
+  st.markdown("""
+    * Ce graphique analyse la vitesse moyenne de progression (Momentum / Vitesse du Z-Score de la Power Law) en fonction de la position exacte au sein du cycle log-périodique (de $0^\circ$ à $360^\circ$).
+    * **Barres bleues** : Vitesse moyenne observée historiquement dans chaque secteur angulaire du cycle.
+    * **Barres d'erreur (±1σ)** : Dispersion statistique de la vitesse pour chaque phase.
+    * **Ligne pointillée rouge** : Position actuelle estimée dans le cycle.
+    """)
+
+# Calcul de la phase angulaire et de la vitesse (dérivée du Z-score Power Law sur 30 jours)
+df["cycle_phase_deg"] = (
+    (omega * df["lnT"]) % (2 * np.pi)
+) * (180 / np.pi)
+df["z_velocity"] = df["z_score_pl"].diff(30).fillna(0)
+
+# Récupération de la phase actuelle (dernière valeur du DataFrame)
+current_phase = df["cycle_phase_deg"].iloc[-1]
+
+# Découpage en bins angulaires (tranches de 10°)
+bins = np.arange(0, 370, 10)
+labels = np.arange(5, 365, 10)
+df["angle_bin"] = pd.cut(
+    df["cycle_phase_deg"], bins=bins, labels=labels, include_lowest=True
+)
+
+# Agrégation statistique par bin angulaire
+speed_profile = (
+    df.groupby("angle_bin", observed=False)["z_velocity"]
+    .agg(["mean", "std", "count"])
+    .reset_index()
+)
+
+fig_speed_profile = go.Figure()
+
+# Ajout des barres de vitesse moyenne avec écart-type
+fig_speed_profile.add_trace(
+    go.Bar(
+        x=speed_profile["angle_bin"],
+        y=speed_profile["mean"],
+        name="Vitesse Moyenne (Z-Score)",
+        marker_color="#38BDF8",
+        error_y=dict(
+            type="data",
+            array=speed_profile["std"].fillna(0),
+            visible=True,
+            color="rgba(255, 255, 255, 0.5)",
+        ),
+    )
+)
+
+# Ligne horizontale de référence à vélocité nulle
+fig_speed_profile.add_hline(
+    y=0, line_dash="solid", line_color="rgba(255, 255, 255, 0.4)", line_width=1.2
+)
+
+# Curseur vertical indiquant la position actuelle dans le cycle
+fig_speed_profile.add_vline(
+    x=current_phase,
+    line_dash="dash",
+    line_color="#F43F5E",
+    line_width=2.5,
+    annotation_text=f"Actuel : {current_phase:.1f}°",
+    annotation_position="top right",
+    annotation_font_color="#F43F5E",
+    annotation_font_size=12,
+)
+
+# Mise en forme du graphique
+fig_speed_profile.update_layout(
+    template="plotly_dark",
+    height=420,
+    margin=dict(l=20, r=20, t=40, b=20),
+    xaxis_title="Phase Angulaire du Cycle (Degrés)",
+    yaxis_title="Vitesse Moyenne du Z-Score (Δσ / 30j)",
+    xaxis=dict(
+        tickmode="array",
+        tickvals=list(range(0, 360, 45)),
+        ticktext=["0°", "45°", "90°", "135°", "180°", "225°", "270°", "315°"],
+    ),
+    legend=dict(orientation="h", y=1.12, x=0.5, xanchor="center"),
+)
+
+st.plotly_chart(fig_speed_profile, use_container_width=True)
 
 # ==============================================================================
 # SECTION COMBINÉE : FRACTIONS D'ÉNERGIE ET VISUALISATION DES HARMONIQUES CÔTE À CÔTE
