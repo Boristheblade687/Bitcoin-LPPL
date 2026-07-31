@@ -2318,7 +2318,6 @@ with col_proj:
       mime="text/csv",
   )
 
-
 # ==============================================================================
 # SECTION : SIMULATEUR DE DCA INTELLIGENT (SMART DCA)
 # ==============================================================================
@@ -2412,4 +2411,115 @@ for idx, row in dca_sim_df.iterrows():
       "Portfolio Smart": val_smart,
   })
 
-df_dca = pd.DataFrame(dca_history)
+df_dca_res = pd.DataFrame(dca_history)
+
+if not df_dca_res.empty:
+  last_row = df_dca_res.iloc[-1]
+
+  fin_inv_c = last_row["Investi Classique"]
+  fin_val_c = last_row["Portfolio Classique"]
+  pnl_c = ((fin_val_c - fin_inv_c) / fin_inv_c) * 100 if fin_inv_c > 0 else 0
+
+  fin_inv_s = last_row["Investi Smart"]
+  fin_val_s = last_row["Portfolio Smart"]
+  pnl_s = ((fin_val_s - fin_inv_s) / fin_inv_s) * 100 if fin_inv_s > 0 else 0
+
+  col_res1, col_res2 = st.columns(2)
+  with col_res1:
+    st.markdown("### 📊 DCA Classique (Fixe)")
+    c1, c2, c3 = st.columns(3)
+    c1.metric(
+        "Total Investi",
+        f"${fin_inv_c:,.0f}",
+        help="❓ Montant total cumulé investi via la stratégie classique fixe.",
+    )
+    c2.metric(
+        "Valeur Portefeuille",
+        f"${fin_val_c:,.0f}",
+        help="❓ Valeur actuelle totale des Bitcoins accumulés au prix du marché.",
+    )
+    c3.metric(
+        "Performance",
+        f"{pnl_c:+.1f}%",
+        help="❓ Rendement en pourcentage (Plus-value / Capital investi).",
+    )
+
+  with col_res2:
+    st.markdown("### 🧠 Smart DCA (Basé sur Power Law)")
+    c1, c2, c3 = st.columns(3)
+    c1.metric(
+        "Total Investi",
+        f"${fin_inv_s:,.0f}",
+        help=(
+            "❓ Montant total investi modulé dynamiquement selon les z-scores"
+            " de la Power Law."
+        ),
+    )
+    c2.metric(
+        "Valeur Portefeuille",
+        f"${fin_val_s:,.0f}",
+        help="❓ Valeur actuelle totale du portefeuille Smart DCA.",
+    )
+    c3.metric(
+        "Performance",
+        f"{pnl_s:+.1f}%",
+        delta=f"{pnl_s - pnl_c:+.1f}% vs Fixe",
+        help=(
+            "❓ Rendement global de la stratégie Smart DCA par rapport au"
+            " capital investi."
+        ),
+    )
+
+  fig_smart_dca = go.Figure()
+  fig_smart_dca.add_trace(
+      go.Scatter(
+          x=df_dca_res["Date"],
+          y=df_dca_res["Portfolio Classique"],
+          name="Portfolio DCA Classique",
+          line=dict(color="#9CA3AF", width=1.5, dash="dash"),
+      )
+  )
+  fig_smart_dca.add_trace(
+      go.Scatter(
+          x=df_dca_res["Date"],
+          y=df_dca_res["Portfolio Smart"],
+          name="Portfolio Smart DCA",
+      )
+  )
+  fig_smart_dca.add_trace(
+      go.Scatter(
+          x=df_dca_res["Date"],
+          y=df_dca_res["Investi Smart"],
+          name="Capital Total Investi (Smart)",
+          line=dict(color="#38BDF8", width=1, dash="dot"),
+      )
+  )
+
+  fig_smart_dca.update_layout(
+      template="plotly_dark",
+      height=400,
+      margin=dict(l=20, r=20, t=30, b=20),
+      yaxis_type="log",
+      yaxis_title="USD (Échelle Log)",
+      xaxis_title="Date",
+      legend=dict(orientation="h", y=1.12, x=0.5, xanchor="center"),
+  )
+  st.plotly_chart(fig_smart_dca, use_container_width=True)
+else:
+  st.warning(
+      "Aucune donnée disponible à partir de la date de début sélectionnée."
+  )
+
+# ==============================================================================
+# SECTION FINALE : SCHÉMA CONCEPTUEL (TAS DE SABLE)
+# ==============================================================================
+st.markdown("---")
+st.subheader("📚 Schéma Conceptuel : Le Tas de Sable de Bitcoin & LPPL")
+st.image(
+    "tas_de_sable.png",
+    use_container_width=True,
+    caption=(
+        "Analogie du tas de sable (Self-Organized Criticality) appliquée à"
+        " Bitcoin – Inspiré des travaux de Didier Sornette"
+    ),
+)
