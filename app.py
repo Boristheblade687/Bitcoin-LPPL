@@ -21,13 +21,13 @@ st.title("₿ Bitcoin PowerLaw + LPPL (2 Harmonics) - Advanced Analytics")
 
 # Initialisation des variables dans le Session State
 DEFAULT_PARAMS = {
-    "A": -38.86,
+    "A": -38.85,
     "B": 5.804,
-    "C1": 0.62,
-    "omega": 8.626,
-    "phi1": -1.98,
+    "C1": 0.6,
+    "omega": 8.629,
+    "phi1": -2.00,
     "C2": 0.27,
-    "phi2": -2.71,
+    "phi2": -2.79,
 }
 
 for key, val in DEFAULT_PARAMS.items():
