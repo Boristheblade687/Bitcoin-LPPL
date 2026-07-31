@@ -707,7 +707,7 @@ fig = make_subplots(
     rows=2,
     cols=1,
     shared_xaxes=True,
-    vertical_spacing=0.12,
+    vertical_spacing=0.1,
     row_heights=[0.72, 0.28],
     subplot_titles=(
         (
@@ -852,7 +852,7 @@ fig.add_trace(
 lnT_min_val = float(df["lnT"].min())
 lnT_max_val = float(np.log(future_days_arr[-1]))
 
-step_angle = np.pi / 4  # Incrément de 45° pour inclure 45, 135, 225, etc.
+step_angle = np.pi / 4
 k_min = int(np.floor((omega * lnT_min_val) / step_angle))
 k_max = int(np.ceil((omega * lnT_max_val) / step_angle))
 
@@ -881,7 +881,7 @@ for k in range(k_min, k_max + 1):
     line_width = 1.5
     line_dash = "dash"
   elif angle_deg in [45, 135, 225, 315]:
-    line_color = "rgba(255, 0, 0, 0.2)"  # Ligne pointillée rouge très discrète
+    line_color = "rgba(255, 0, 0, 0.3)"
     line_width = 0.8
     line_dash = "dot"
   else:
@@ -902,10 +902,13 @@ for k in range(k_min, k_max + 1):
         col=1,
     )
 
-  if angle_deg in [0, 90, 180, 270]:
+  if angle_deg in [0, 90, 180, 270, 45, 135, 225, 315]:
     if angle_deg in [0, 270]:
       ann_text = f"<b>{angle_deg}°</b>"
       ann_color = "#00FF7F"
+    elif angle_deg in [45, 135, 225, 315]:
+      ann_text = f"<b>{angle_deg}°</b>"
+      ann_color = "#FF6B6B"
     else:
       ann_text = f"<b>{angle_deg}°</b>"
       ann_color = "#FF9900"
@@ -965,16 +968,17 @@ fig.update_yaxes(title_text="Z-Score (σ)", row=2, col=1)
 x_min_val = x_trend[0]
 x_max_val = x_trend[-1]
 
-xaxis_config = (
+# Configuration de l'axe X du graphique du HAUT (sans titre)
+xaxis_config_top = (
     dict(
-        title=dict(text=xaxis_title, standoff=40),
+        title=dict(text="", standoff=0),
         rangeslider=dict(visible=False),
         range=[x_min_val, x_max_val],
         autorange=False,
     )
     if log_time_axis
     else dict(
-        title=dict(text=xaxis_title, standoff=25),
+        title=dict(text="", standoff=0),
         rangeselector=dict(
             y=1.12,
             x=0.0,
@@ -989,17 +993,34 @@ xaxis_config = (
         autorange=False,
     )
 )
+fig.update_xaxes(xaxis_config_top, row=1, col=1)
 
-fig.update_xaxes(xaxis_config)
+# Configuration de l'axe X du graphique du BAS (avec le titre)
+xaxis_config_bottom = (
+    dict(
+        title=dict(text=xaxis_title, standoff=25),
+        rangeslider=dict(visible=False),
+        range=[x_min_val, x_max_val],
+        autorange=False,
+    )
+    if log_time_axis
+    else dict(
+        title=dict(text=xaxis_title, standoff=20),
+        rangeslider=dict(visible=False),
+        range=[x_min_val, x_max_val],
+        autorange=False,
+    )
+)
+fig.update_xaxes(xaxis_config_bottom, row=2, col=1)
 
 fig.update_layout(
     template="plotly_dark",
     height=1050,
-    margin=dict(l=5, r=5, t=100, b=150),
+    margin=dict(l=5, r=5, t=100, b=120),
     legend=dict(
         orientation="h",
         yanchor="bottom",
-        y=0.31,
+        y=0.32,
         xanchor="center",
         x=0.5,
         font=dict(size=9),
@@ -1008,7 +1029,7 @@ fig.update_layout(
     legend2=dict(
         orientation="h",
         yanchor="top",
-        y=-0.22,
+        y=-0.1,
         xanchor="center",
         x=0.5,
         font=dict(size=9),
@@ -1134,7 +1155,7 @@ with col_dash:
         f"{r2_oos_1y:.4f}",
         help=(
             "❓ Coefficient de détermination Out-Of-Sample calculé en"
-            " prédiction réelle sur un horizon de 1 an."
+            " prévision réelle sur un horizon de 1 an."
         ),
     )
 
@@ -1164,7 +1185,7 @@ with col_dash:
         "OOS RMSE (1Y)",
         f"{wf_rmse_1y_val:.1f}%",
         help=(
-            "❓ Erreur quadratique moyenne en prédiction réelle"
+            "❓ Erreur quadratique moyenne en prévision réelle"
             " (Out-Of-Sample) projetée à 1 an."
         ),
     )
@@ -1172,7 +1193,7 @@ with col_dash:
         "Ratio Out/In",
         f"{gen_ratio:.2f}x",
         help=(
-            "❓ Rapport entre l'erreur de prédiction OOS et l'erreur In-Sample"
+            "❓ Rapport entre l'erreur de prévision OOS et l'erreur In-Sample"
             " (mesure la dégradation de performance hors échantillon)."
         ),
     )
@@ -1398,7 +1419,7 @@ with col_clock_omega:
         )
     )
 
-  red_cones = [45, 135, 225,315]
+  red_cones = [45, 135, 225, 315]
   for ang in red_cones:
     th_vals = np.linspace(ang - cone_half_width, ang + cone_half_width, 30)
     r_vals = np.full_like(th_vals, 6.5)
@@ -1462,7 +1483,7 @@ with col_clock_omega:
               direction="clockwise",
               period=360,
               tickmode="array",
-              tickvals=[0, 45, 90, 135, 180, 225, 270,315],
+              tickvals=[0, 45, 90, 135, 180, 225, 270, 315],
               ticktext=[
                   "0°",
                   "45°",
@@ -1493,7 +1514,9 @@ t_norm = (years - 2010.0) / (2026.0 - 2010.0)  # Normalisé entre 0 et 1 de 2010
 
 f_05 = 0.02 + 0.01 * np.sin(t_norm * np.pi)
 f_10 = 0.35 * np.exp(-2.5 * t_norm) + 0.05
-f_20 = 0.15 + 0.12 * np.sin(t_norm * np.pi * 1.5) * np.exp(-((t_norm - 0.3) ** 2) / 0.1)
+f_20 = 0.15 + 0.12 * np.sin(t_norm * np.pi * 1.5) * np.exp(
+    -((t_norm - 0.3) ** 2) / 0.1
+)
 f_20 = np.clip(f_20, 0.05, 0.30)
 f_30 = 0.08 + 0.12 * (1.0 - np.exp(-3.0 * t_norm))
 f_40 = 0.06 + 0.02 * np.sin(t_norm * np.pi * 2)
@@ -1506,7 +1529,9 @@ f_30_s = f_30 / twist_raw * 0.61
 f_40_s = f_40 / twist_raw * 0.61
 f_wr = 1.0 - (f_05_s + f_10_s + f_20_s + f_30_s + f_40_s)
 
-custom_angles = df["clock_angle"] if "clock_angle" in df.columns else np.zeros(len(df))
+custom_angles = (
+    df["clock_angle"] if "clock_angle" in df.columns else np.zeros(len(df))
+)
 lnT_full = df["lnT"].values
 
 # Création des deux colonnes principales côte à côte
@@ -1516,189 +1541,311 @@ col_left, col_right = st.columns(2)
 # COLONNE GAUCHE : FRACTIONS D'ÉNERGIE (TWIST / WRITHE)
 # ==============================================================================
 with col_left:
-    st.subheader("⚡ Fractions d'énergie par mode")
-    
-    with st.expander("❓ Guide de lecture - Fractions d'énergie"):
-        st.markdown("""
+  st.subheader("⚡ Fractions d'énergie par mode")
+
+  with st.expander("❓ Guide de lecture - Fractions d'énergie"):
+    st.markdown("""
         * Décomposition temporelle des fractions d'énergie par mode harmonique ($0.5\omega$ à $4.0\omega$) et composante **Writhe**.
         * **Twist (~0.61)** : Énergie cumulée des modes oscillatoires.
         * **Writhe (~0.39)** : Énergie de fond / résiduelle (Power Law).
         """)
 
-    fig_energy = go.Figure()
+  fig_energy = go.Figure()
 
-    fig_energy.add_trace(go.Scatter(
-        x=df["Date"], y=f_05_s, name="0.5ω", mode="lines",
-        line=dict(width=0.5, color="#1f77b4"), stackgroup="one",
-        customdata=custom_angles,
-        hovertemplate="Date: %{x|%Y-%m-%d}<br>Angle: %{customdata:.1f}°<br>Fraction: %{y:.3f}<extra>%{data.name}</extra>"
-    ))
-    fig_energy.add_trace(go.Scatter(
-        x=df["Date"], y=f_10_s, name="1.0ω", mode="lines",
-        line=dict(width=0.5, color="#ff7f0e"), stackgroup="one",
-        customdata=custom_angles,
-        hovertemplate="Date: %{x|%Y-%m-%d}<br>Angle: %{customdata:.1f}°<br>Fraction: %{y:.3f}<extra>%{data.name}</extra>"
-    ))
-    fig_energy.add_trace(go.Scatter(
-        x=df["Date"], y=f_20_s, name="2.0ω", mode="lines",
-        line=dict(width=0.5, color="#2ca02c"), stackgroup="one",
-        customdata=custom_angles,
-        hovertemplate="Date: %{x|%Y-%m-%d}<br>Angle: %{customdata:.1f}°<br>Fraction: %{y:.3f}<extra>%{data.name}</extra>"
-    ))
-    fig_energy.add_trace(go.Scatter(
-        x=df["Date"], y=f_30_s, name="3.0ω", mode="lines",
-        line=dict(width=0.5, color="#d62728"), stackgroup="one",
-        customdata=custom_angles,
-        hovertemplate="Date: %{x|%Y-%m-%d}<br>Angle: %{customdata:.1f}°<br>Fraction: %{y:.3f}<extra>%{data.name}</extra>"
-    ))
-    fig_energy.add_trace(go.Scatter(
-        x=df["Date"], y=f_40_s, name="4.0ω", mode="lines",
-        line=dict(width=0.5, color="#9467bd"), stackgroup="one",
-        customdata=custom_angles,
-        hovertemplate="Date: %{x|%Y-%m-%d}<br>Angle: %{customdata:.1f}°<br>Fraction: %{y:.3f}<extra>%{data.name}</extra>"
-    ))
-    fig_energy.add_trace(go.Scatter(
-        x=df["Date"], y=f_wr, name="wr", mode="lines",
-        line=dict(width=0.5, color="#8c564b"), stackgroup="one",
-        customdata=custom_angles,
-        hovertemplate="Date: %{x|%Y-%m-%d}<br>Angle: %{customdata:.1f}°<br>Fraction: %{y:.3f}<extra>%{data.name}</extra>"
-    ))
+  fig_energy.add_trace(
+      go.Scatter(
+          x=df["Date"],
+          y=f_05_s,
+          name="0.5ω",
+          mode="lines",
+          line=dict(width=0.5, color="#1f77b4"),
+          stackgroup="one",
+          customdata=custom_angles,
+          hovertemplate=(
+              "Date: %{x|%Y-%m-%d}<br>Angle: %{customdata:.1f}°<br>Fraction:"
+              " %{y:.3f}<extra>%{data.name}</extra>"
+          ),
+      )
+  )
+  fig_energy.add_trace(
+      go.Scatter(
+          x=df["Date"],
+          y=f_10_s,
+          name="1.0ω",
+          mode="lines",
+          line=dict(width=0.5, color="#ff7f0e"),
+          stackgroup="one",
+          customdata=custom_angles,
+          hovertemplate=(
+              "Date: %{x|%Y-%m-%d}<br>Angle: %{customdata:.1f}°<br>Fraction:"
+              " %{y:.3f}<extra>%{data.name}</extra>"
+          ),
+      )
+  )
+  fig_energy.add_trace(
+      go.Scatter(
+          x=df["Date"],
+          y=f_20_s,
+          name="2.0ω",
+          mode="lines",
+          line=dict(width=0.5, color="#2ca02c"),
+          stackgroup="one",
+          customdata=custom_angles,
+          hovertemplate=(
+              "Date: %{x|%Y-%m-%d}<br>Angle: %{customdata:.1f}°<br>Fraction:"
+              " %{y:.3f}<extra>%{data.name}</extra>"
+          ),
+      )
+  )
+  fig_energy.add_trace(
+      go.Scatter(
+          x=df["Date"],
+          y=f_30_s,
+          name="3.0ω",
+          mode="lines",
+          line=dict(width=0.5, color="#d62728"),
+          stackgroup="one",
+          customdata=custom_angles,
+          hovertemplate=(
+              "Date: %{x|%Y-%m-%d}<br>Angle: %{customdata:.1f}°<br>Fraction:"
+              " %{y:.3f}<extra>%{data.name}</extra>"
+          ),
+      )
+  )
+  fig_energy.add_trace(
+      go.Scatter(
+          x=df["Date"],
+          y=f_40_s,
+          name="4.0ω",
+          mode="lines",
+          line=dict(width=0.5, color="#9467bd"),
+          stackgroup="one",
+          customdata=custom_angles,
+          hovertemplate=(
+              "Date: %{x|%Y-%m-%d}<br>Angle: %{customdata:.1f}°<br>Fraction:"
+              " %{y:.3f}<extra>%{data.name}</extra>"
+          ),
+      )
+  )
+  fig_energy.add_trace(
+      go.Scatter(
+          x=df["Date"],
+          y=f_wr,
+          name="wr",
+          mode="lines",
+          line=dict(width=0.5, color="#8c564b"),
+          stackgroup="one",
+          customdata=custom_angles,
+          hovertemplate=(
+              "Date: %{x|%Y-%m-%d}<br>Angle: %{customdata:.1f}°<br>Fraction:"
+              " %{y:.3f}<extra>%{data.name}</extra>"
+          ),
+      )
+  )
 
-    # Lignes verticales des angles cycliques
-    if "clock_angle" in df.columns:
-        angles = df["clock_angle"].values
-        k = 0
-        unwrapped_angles = []
-        prev_a = angles[0]
-        for a in angles:
-            if a < prev_a - 180:
-                k += 1
-            elif a > prev_a + 180:
-                k -= 1
-            unwrapped_angles.append(k * 360 + a)
-            prev_a = a
-            
-        df_temp = df.copy()
-        df_temp["unwrapped_angle"] = unwrapped_angles
-        min_ang, max_ang = df_temp["unwrapped_angle"].min(), df_temp["unwrapped_angle"].max()
-        offsets = [45, 135, 225, 315]
-        
-        for cycle in range(int(np.floor(min_ang / 360)), int(np.ceil(max_ang / 360)) + 1):
-            for offset in offsets:
-                ang = cycle * 360 + offset
-                if min_ang <= ang <= max_ang:
-                    idx = (df_temp["unwrapped_angle"] - ang).abs().idxmin()
-                    fig_energy.add_vline(
-                        x=df_temp.loc[idx, "Date"], line_dash="dash",
-                        line_color="rgba(255, 255, 255, 0.2)", line_width=0.8,
-                        annotation_text=f"{int(ang) % 360}°", annotation_position="top",
-                        annotation_font_size=9, annotation_font_color="rgba(255, 255, 255, 0.6)"
-                    )
+  # Lignes verticales des angles cycliques
+  if "clock_angle" in df.columns:
+    angles = df["clock_angle"].values
+    k = 0
+    unwrapped_angles = []
+    prev_a = angles[0]
+    for a in angles:
+      if a < prev_a - 180:
+        k += 1
+      elif a > prev_a + 180:
+        k -= 1
+      unwrapped_angles.append(k * 360 + a)
+      prev_a = a
 
-    fig_energy.update_layout(
-        template="plotly_dark", title="Fractions d'énergie Twist/Writhe",
-        height=450, margin=dict(l=20, r=20, t=40, b=20),
-        yaxis=dict(title="Fraction", range=[0, 1.0]), xaxis=dict(title="Date"),
-        legend=dict(orientation="v", yanchor="top", y=0.98, xanchor="right", x=0.99, bgcolor="rgba(0,0,0,0.6)")
+    df_temp = df.copy()
+    df_temp["unwrapped_angle"] = unwrapped_angles
+    min_ang, max_ang = (
+        df_temp["unwrapped_angle"].min(),
+        df_temp["unwrapped_angle"].max(),
     )
-    st.plotly_chart(fig_energy, use_container_width=True)
+    offsets = [45, 135, 225, 315]
+
+    for cycle in range(
+        int(np.floor(min_ang / 360)), int(np.ceil(max_ang / 360)) + 1
+    ):
+      for offset in offsets:
+        ang = cycle * 360 + offset
+        if min_ang <= ang <= max_ang:
+          idx = (df_temp["unwrapped_angle"] - ang).abs().idxmin()
+          fig_energy.add_vline(
+              x=df_temp.loc[idx, "Date"],
+              line_dash="dash",
+              line_color="rgba(255, 255, 255, 0.2)",
+              line_width=0.8,
+              annotation_text=f"{int(ang) % 360}°",
+              annotation_position="top",
+              annotation_font_size=9,
+              annotation_font_color="rgba(255, 255, 255, 0.6)",
+          )
+
+  fig_energy.update_layout(
+      template="plotly_dark",
+      title="Fractions d'énergie Twist/Writhe",
+      height=450,
+      margin=dict(l=20, r=20, t=40, b=20),
+      yaxis=dict(title="Fraction", range=[0, 1.0]),
+      xaxis=dict(title="Date"),
+      legend=dict(
+          orientation="v",
+          yanchor="top",
+          y=0.98,
+          xanchor="right",
+          x=0.99,
+          bgcolor="rgba(0,0,0,0.6)",
+      ),
+  )
+  st.plotly_chart(fig_energy, use_container_width=True)
 
 # ==============================================================================
 # COLONNE DROITE : VISUALISATION INTERACTIVE DES HARMONIQUES
 # ==============================================================================
 with col_right:
-    st.subheader("🎼 Harmoniques par Mode ($0.5\omega$ à $4.0\omega$)")
-    
-    with st.expander("❓ Guide de lecture - Harmoniques"):
-        st.markdown("""
+  st.subheader("🎼 Harmoniques par Mode ($0.5\omega$ à $4.0\omega$)")
+
+  with st.expander("❓ Guide de lecture - Harmoniques"):
+    st.markdown("""
         * Sélectionnez les harmoniques à afficher.
         * Les amplitudes sont modulées dynamiquement par leurs fractions d'énergie respectives.
         """)
 
-    col_h_chk1, col_h_chk2, col_h_chk3, col_h_chk4, col_h_chk5 = st.columns(5)
-    with col_h_chk1:
-        show_h05 = st.checkbox("0.5w", value=True, key="chk_h05")
-    with col_h_chk2:
-        show_h10 = st.checkbox("1w", value=True, key="chk_h10")
-    with col_h_chk3:
-        show_h20 = st.checkbox("2w", value=True, key="chk_h20")
-    with col_h_chk4:
-        show_h30 = st.checkbox("3w", value=True, key="chk_h30")
-    with col_h_chk5:
-        show_h40 = st.checkbox("4w", value=True, key="chk_h40")
+  col_h_chk1, col_h_chk2, col_h_chk3, col_h_chk4, col_h_chk5 = st.columns(5)
+  with col_h_chk1:
+    show_h05 = st.checkbox("0.5w", value=True, key="chk_h05")
+  with col_h_chk2:
+    show_h10 = st.checkbox("1w", value=True, key="chk_h10")
+  with col_h_chk3:
+    show_h20 = st.checkbox("2w", value=True, key="chk_h20")
+  with col_h_chk4:
+    show_h30 = st.checkbox("3w", value=True, key="chk_h30")
+  with col_h_chk5:
+    show_h40 = st.checkbox("4w", value=True, key="chk_h40")
 
-    # Case à cocher pour la somme totale
-    show_sum = st.checkbox("Afficher la somme totale", value=True, key="chk_h_sum")
+  # Case à cocher pour la somme totale
+  show_sum = st.checkbox("Afficher la somme totale", value=True, key="chk_h_sum")
 
-    # Zones de texte / saisie pour paramétrer les phases de chaque composante
-    with st.expander("⚙️ Paramétrage individuel des phases ($\phi$)"):
-        col_p1, col_p2, col_p3, col_p4, col_p5 = st.columns(5)
-        with col_p1:
-            phase_05 = st.number_input("Phase 0.5ω", value=float(1.0), format="%.4f", key="phase_05_val")
-        with col_p2:
-            phase_10 = st.number_input("Phase 1.0ω", value=float(-2.11), format="%.4f", key="phase_10_val")
-        with col_p3:
-            phase_20 = st.number_input("Phase 2.0ω", value=float(-0.726), format="%.4f", key="phase_20_val")
-        with col_p4:
-            phase_30 = st.number_input("Phase 3.0ω", value=float(-0.413), format="%.4f", key="phase_30_val")
-        with col_p5:
-            phase_40 = st.number_input("Phase 4.0ω", value=float(-2.445), format="%.4f", key="phase_40_val")
+  # Zones de texte / saisie pour paramétrer les phases de chaque composante
+  with st.expander("⚙️ Paramétrage individuel des phases ($\phi$)"):
+    col_p1, col_p2, col_p3, col_p4, col_p5 = st.columns(5)
+    with col_p1:
+      phase_05 = st.number_input(
+          "Phase 0.5ω", value=float(1.0), format="%.4f", key="phase_05_val"
+      )
+    with col_p2:
+      phase_10 = st.number_input(
+          "Phase 1.0ω", value=float(-2.11), format="%.4f", key="phase_10_val"
+      )
+    with col_p3:
+      phase_20 = st.number_input(
+          "Phase 2.0ω", value=float(-0.726), format="%.4f", key="phase_20_val"
+      )
+    with col_p4:
+      phase_30 = st.number_input(
+          "Phase 3.0ω", value=float(-0.413), format="%.4f", key="phase_30_val"
+      )
+    with col_p5:
+      phase_40 = st.number_input(
+          "Phase 4.0ω", value=float(-2.445), format="%.4f", key="phase_40_val"
+      )
 
-    # Calcul des ondes harmoniques modulées utilisant les phases personnalisées
-    wave_05 = (C1 * 0.4) * f_05_s * np.cos(0.5 * omega * lnT_full + phase_05)
-    wave_10 = C1 * f_10_s * np.cos(1.0 * omega * lnT_full + phase_10)
-    wave_20 = (C2 * 1.2) * f_20_s * np.cos(2.0 * omega * lnT_full + phase_20)
-    wave_30 = (C2 * 0.8) * f_30_s * np.cos(3.0 * omega * lnT_full + phase_30)
-    wave_40 = C2 * f_40_s * np.cos(4.0 * omega * lnT_full + phase_40)
+  # Calcul des ondes harmoniques modulées utilisant les phases personnalisées
+  wave_05 = (C1 * 0.4) * f_05_s * np.cos(0.5 * omega * lnT_full + phase_05)
+  wave_10 = C1 * f_10_s * np.cos(1.0 * omega * lnT_full + phase_10)
+  wave_20 = (C2 * 1.2) * f_20_s * np.cos(2.0 * omega * lnT_full + phase_20)
+  wave_30 = (C2 * 0.8) * f_30_s * np.cos(3.0 * omega * lnT_full + phase_30)
+  wave_40 = C2 * f_40_s * np.cos(4.0 * omega * lnT_full + phase_40)
 
-    # Calcul de la somme globale des harmoniques
-    wave_sum = wave_05 + wave_10 + wave_20 + wave_30 + wave_40
+  # Calcul de la somme globale des harmoniques
+  wave_sum = wave_05 + wave_10 + wave_20 + wave_30 + wave_40
 
-    fig_harmonics = go.Figure()
+  fig_harmonics = go.Figure()
 
-    if show_h05:
-        fig_harmonics.add_trace(go.Scatter(
-            x=df["Date"], y=wave_05, mode="lines", name="0.5ω",
-            line=dict(color="#1f77b4", width=1.5)
-        ))
-    if show_h10:
-        fig_harmonics.add_trace(go.Scatter(
-            x=df["Date"], y=wave_10, mode="lines", name="1.0ω",
-            line=dict(color="#ff7f0e", width=1.5)
-        ))
-    if show_h20:
-        fig_harmonics.add_trace(go.Scatter(
-            x=df["Date"], y=wave_20, mode="lines", name="2.0ω",
-            line=dict(color="#2ca02c", width=1.5)
-        ))
-    if show_h30:
-        fig_harmonics.add_trace(go.Scatter(
-            x=df["Date"], y=wave_30, mode="lines", name="3.0ω",
-            line=dict(color="#d62728", width=1.5)
-        ))
-    if show_h40:
-        fig_harmonics.add_trace(go.Scatter(
-            x=df["Date"], y=wave_40, mode="lines", name="4.0ω",
-            line=dict(color="#9467bd", width=1.5)
-        ))
-        
-    # Ajout de la courbe de la somme si la case est cochée
-    if show_sum:
-        fig_harmonics.add_trace(go.Scatter(
-            x=df["Date"], y=wave_sum, mode="lines", name="Somme Totale",
-            line=dict(color="#ffffff", width=2.5, dash="dash")
-        ))
-
-    fig_harmonics.update_layout(
-        template="plotly_dark", title="Ondes Harmoniques Modulées & Somme",
-        height=450, margin=dict(l=20, r=20, t=40, b=20),
-        yaxis=dict(title="Amplitude"), xaxis=dict(title="Date"),
-        legend=dict(orientation="h", y=1.15, x=0.5, xanchor="center", bgcolor="rgba(0,0,0,0.6)")
+  if show_h05:
+    fig_harmonics.add_trace(
+        go.Scatter(
+            x=df["Date"],
+            y=wave_05,
+            mode="lines",
+            name="0.5ω",
+            line=dict(color="#1f77b4", width=1.5),
+        )
     )
-    st.plotly_chart(fig_harmonics, use_container_width=True)
-    
+  if show_h10:
+    fig_harmonics.add_trace(
+        go.Scatter(
+            x=df["Date"],
+            y=wave_10,
+            mode="lines",
+            name="1.0ω",
+            line=dict(color="#ff7f0e", width=1.5),
+        )
+    )
+  if show_h20:
+    fig_harmonics.add_trace(
+        go.Scatter(
+            x=df["Date"],
+            y=wave_20,
+            mode="lines",
+            name="2.0ω",
+            line=dict(color="#2ca02c", width=1.5),
+        )
+    )
+  if show_h30:
+    fig_harmonics.add_trace(
+        go.Scatter(
+            x=df["Date"],
+            y=wave_30,
+            mode="lines",
+            name="3.0ω",
+            line=dict(color="#d62728", width=1.5),
+        )
+    )
+  if show_h40:
+    fig_harmonics.add_trace(
+        go.Scatter(
+            x=df["Date"],
+            y=wave_40,
+            mode="lines",
+            name="4.0ω",
+            line=dict(color="#9467bd", width=1.5),
+        )
+    )
+
+  # Ajout de la courbe de la somme si la case est cochée
+  if show_sum:
+    fig_harmonics.add_trace(
+        go.Scatter(
+            x=df["Date"],
+            y=wave_sum,
+            mode="lines",
+            name="Somme Totale",
+            line=dict(color="#ffffff", width=2.5, dash="dash"),
+        )
+    )
+
+  fig_harmonics.update_layout(
+      template="plotly_dark",
+      title="Ondes Harmoniques Modulées & Somme",
+      height=450,
+      margin=dict(l=20, r=20, t=40, b=20),
+      yaxis=dict(title="Amplitude"),
+      xaxis=dict(title="Date"),
+      legend=dict(
+          orientation="h",
+          y=1.15,
+          x=0.5,
+          xanchor="center",
+          bgcolor="rgba(0,0,0,0.6)",
+      ),
+  )
+  st.plotly_chart(fig_harmonics, use_container_width=True)
+
 # ==============================================================================
-# SECTION : COURBE DE PRÉDICTION OOS (HORIZON PERSONNALISABLE)
+# SECTION : COURBE DE PRÉVISION OOS (HORIZON PERSONNALISABLE)
 # ==============================================================================
 st.markdown("---")
 
@@ -1716,12 +1863,12 @@ if "oos_chart_horizon_selectbox" not in st.session_state:
 current_label = st.session_state["oos_chart_horizon_selectbox"]
 
 st.subheader(
-    f"📈 Comparaison de la Courbe de Prédiction Out-Of-Sample"
+    f"📈 Comparaison de la Courbe de Prévision Out-Of-Sample"
     f" ({current_label}) vs Prix Réel"
 )
 
 selected_oos_chart_label = st.selectbox(
-    "Sélectionner l'horizon OOS pour la comparaison de prédiction",
+    "Sélectionner l'horizon OOS pour la comparaison de prévision",
     options=list(oos_chart_options.keys()),
     key="oos_chart_horizon_selectbox",
 )
@@ -2037,7 +2184,7 @@ col_dist1, col_dist2 = st.columns([2, 1])
 with col_dist2:
   st.markdown(f"### 📐 Analyse de forme (Student-t) [{dist_mode_label}]")
   st.markdown(
-      f"Ce graphique superpose l'histogramme réel des erreurs de prédiction"
+      f"Ce graphique superpose l'histogramme réel des erreurs de prévision"
       f" avec la loi de Student ajustée (df = {df_t:.2f})."
   )
   st.metric(
@@ -2085,7 +2232,7 @@ with col_dist1:
         height=400,
         margin=dict(l=20, r=20, t=30, b=20),
         legend=dict(orientation="h", y=1.15, x=0.5, xanchor="center"),
-        xaxis_title="Erreur de prédiction / Résidu (%)",
+        xaxis_title="Erreur de prévision / Résidu (%)",
         yaxis_title="Densité de probabilité",
     )
     st.plotly_chart(fig_dist, use_container_width=True)
@@ -2259,115 +2406,4 @@ for idx, row in dca_sim_df.iterrows():
       "Portfolio Smart": val_smart,
   })
 
-df_dca_res = pd.DataFrame(dca_history)
-
-if not df_dca_res.empty:
-  last_row = df_dca_res.iloc[-1]
-
-  fin_inv_c = last_row["Investi Classique"]
-  fin_val_c = last_row["Portfolio Classique"]
-  pnl_c = ((fin_val_c - fin_inv_c) / fin_inv_c) * 100 if fin_inv_c > 0 else 0
-
-  fin_inv_s = last_row["Investi Smart"]
-  fin_val_s = last_row["Portfolio Smart"]
-  pnl_s = ((fin_val_s - fin_inv_s) / fin_inv_s) * 100 if fin_inv_s > 0 else 0
-
-  col_res1, col_res2 = st.columns(2)
-  with col_res1:
-    st.markdown("### 📊 DCA Classique (Fixe)")
-    c1, c2, c3 = st.columns(3)
-    c1.metric(
-        "Total Investi",
-        f"${fin_inv_c:,.0f}",
-        help="❓ Montant total cumulé investi via la stratégie classique fixe.",
-    )
-    c2.metric(
-        "Valeur Portefeuille",
-        f"${fin_val_c:,.0f}",
-        help="❓ Valeur actuelle totale des Bitcoins accumulés au prix du marché.",
-    )
-    c3.metric(
-        "Performance",
-        f"{pnl_c:+.1f}%",
-        help="❓ Rendement en pourcentage (Plus-value / Capital investi).",
-    )
-
-  with col_res2:
-    st.markdown("### 🧠 Smart DCA (Basé sur Power Law)")
-    c1, c2, c3 = st.columns(3)
-    c1.metric(
-        "Total Investi",
-        f"${fin_inv_s:,.0f}",
-        help=(
-            "❓ Montant total investi modulé dynamiquement selon les z-scores"
-            " de la Power Law."
-        ),
-    )
-    c2.metric(
-        "Valeur Portefeuille",
-        f"${fin_val_s:,.0f}",
-        help="❓ Valeur actuelle totale du portefeuille Smart DCA.",
-    )
-    c3.metric(
-        "Performance",
-        f"{pnl_s:+.1f}%",
-        delta=f"{pnl_s - pnl_c:+.1f}% vs Fixe",
-        help=(
-            "❓ Rendement global de la stratégie Smart DCA par rapport au"
-            " capital investi."
-        ),
-    )
-
-  fig_smart_dca = go.Figure()
-  fig_smart_dca.add_trace(
-      go.Scatter(
-          x=df_dca_res["Date"],
-          y=df_dca_res["Portfolio Classique"],
-          name="Portfolio DCA Classique",
-          line=dict(color="#9CA3AF", width=1.5, dash="dash"),
-      )
-  )
-  fig_smart_dca.add_trace(
-      go.Scatter(
-          x=df_dca_res["Date"],
-          y=df_dca_res["Portfolio Smart"],
-          name="Portfolio Smart DCA",
-      )
-  )
-  fig_smart_dca.add_trace(
-      go.Scatter(
-          x=df_dca_res["Date"],
-          y=df_dca_res["Investi Smart"],
-          name="Capital Total Investi (Smart)",
-          line=dict(color="#38BDF8", width=1, dash="dot"),
-      )
-  )
-
-  fig_smart_dca.update_layout(
-      template="plotly_dark",
-      height=400,
-      margin=dict(l=20, r=20, t=30, b=20),
-      yaxis_type="log",
-      yaxis_title="USD (Échelle Log)",
-      xaxis_title="Date",
-      legend=dict(orientation="h", y=1.12, x=0.5, xanchor="center"),
-  )
-  st.plotly_chart(fig_smart_dca, use_container_width=True)
-else:
-  st.warning(
-      "Aucune donnée disponible à partir de la date de début sélectionnée."
-  )
-
-# ==============================================================================
-# SECTION FINALE : SCHÉMA CONCEPTUEL (TAS DE SABLE)
-# ==============================================================================
-st.markdown("---")
-st.subheader("📚 Schéma Conceptuel : Le Tas de Sable de Bitcoin & LPPL")
-st.image(
-    "tas_de_sable.png",
-    use_container_width=True,
-    caption=(
-        "Analogie du tas de sable (Self-Organized Criticality) appliquée à"
-        " Bitcoin – Inspiré des travaux de Didier Sornette"
-    ),
-)
+df_dca = pd.DataFrame(dca_history)
