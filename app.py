@@ -723,10 +723,10 @@ fig = make_subplots(
     row_heights=[0.72, 0.28],
     subplot_titles=(
         (
-            "Prix & Provisions Avancées LPPL (Échelle Logarithmique du Temps"
+            "Prix & Prévisions Avancées LPPL (Échelle Logarithmique du Temps"
             " ln(t))"
             if log_time_axis
-            else "Prix & Provisions Avancées LPPL (Temps Linéaire / Date)"
+            else "Prix & Prévisions Avancées LPPL (Temps Linéaire / Date)"
         ),
         "Analyse des Résidus (Z-Scores LPPL & Power Law)",
     ),
@@ -790,7 +790,7 @@ if show_lppl:
           x=x_proj,
           y=proj_lppl,
           mode="lines",
-          name="LPPL Provision Centrale",
+          name="LPPL Prévision Centrale",
           line=dict(color="#FF9900", width=2.5, dash="dash"),
       ),
       row=1,
@@ -1077,7 +1077,7 @@ with col_chart:
   with st.expander("❓ Guide de Lecture du Graphique Principal"):
     st.markdown("""
         * **Prix BTC (Gris)** : Cours de clôture quotidien du Bitcoin.
-        * **LPPL Model (Orange)** : Courbe ajustée du modèle LPPL combinant la tendance et les oscillations. Les pointillés représentent la provision future.
+        * **LPPL Model (Orange)** : Courbe ajustée du modèle LPPL combinant la tendance et les oscillations. Les pointillés représentent la prévision future.
         * **Power Law Fit (Bleu Cyan)** : Tendance fondamentale A + B * ln(t). Les bandes supérieure et inférieure sont calculées dynamiquement à partir des résidus via le paramètre sigma réglable.
         * **Quadrillage Oméga (Lignes et angles)** : Lignes verticales et étiquettes marquant les quarts de cycle log-périodique (0°, 90°, 180°, 270°) ainsi que les angles intermédiaires (45°, 135°, 225°, 315°).
         * **Z-Scores (Panneau Inférieur)** : Mesures de l'écart du prix réel par rapport au modèle LPPL (en orange) et à la Power Law fondamentale (en bleu cyan) exprimés en écarts-types.
@@ -1165,7 +1165,7 @@ with col_dash:
         f"{r2_oos_1y:.4f}",
         help=(
             "❓ Coefficient de détermination Out-Of-Sample calculé en"
-            " provision réelle sur un horizon de 1 an."
+            " prévision réelle sur un horizon de 1 an."
         ),
     )
 
@@ -1195,7 +1195,7 @@ with col_dash:
         "OOS RMSE (1Y)",
         f"{wf_rmse_1y_val:.1f}%",
         help=(
-            "❓ Erreur quadratique moyenne en provision réelle"
+            "❓ Erreur quadratique moyenne en prévision réelle"
             " (Out-Of-Sample) projetée à 1 an."
         ),
     )
@@ -1203,7 +1203,7 @@ with col_dash:
         "Ratio Out/In",
         f"{gen_ratio:.2f}x",
         help=(
-            "❓ Rapport entre l'erreur de provision OOS et l'erreur In-Sample"
+            "❓ Rapport entre l'erreur de prévision OOS et l'erreur In-Sample"
             " (mesure la dégradation de performance hors échantillon)."
         ),
     )
@@ -1940,7 +1940,7 @@ with col_right:
   st.plotly_chart(fig_harmonics, use_container_width=True)
 
 # ==============================================================================
-# SECTION : COURBE DE PROVISION OOS (HORIZON PERSONNALISABLE)
+# SECTION : COURBE DE PREVISION OOS (HORIZON PERSONNALISABLE)
 # ==============================================================================
 st.markdown("---")
 
@@ -1958,12 +1958,12 @@ if "oos_chart_horizon_selectbox" not in st.session_state:
 current_label = st.session_state["oos_chart_horizon_selectbox"]
 
 st.subheader(
-    f"📈 Comparaison de la Courbe de Provision Out-Of-Sample"
+    f"📈 Comparaison de la Courbe de Prévision Out-Of-Sample"
     f" ({current_label}) vs Prix Réel"
 )
 
 selected_oos_chart_label = st.selectbox(
-    "Sélectionner l'horizon OOS pour la comparaison de provision",
+    "Sélectionner l'horizon OOS pour la comparaison de prévision",
     options=list(oos_chart_options.keys()),
     key="oos_chart_horizon_selectbox",
 )
@@ -2279,7 +2279,7 @@ col_dist1, col_dist2 = st.columns([2, 1])
 with col_dist2:
   st.markdown(f"### 📐 Analyse de forme (Student-t) [{dist_mode_label}]")
   st.markdown(
-      f"Ce graphique superpose l'histogramme réel des erreurs de provision"
+      f"Ce graphique superpose l'histogramme réel des erreurs de prévision"
       f" avec la loi de Student ajustée (df = {df_t:.2f})."
   )
   st.metric(
@@ -2327,7 +2327,7 @@ with col_dist1:
         height=400,
         margin=dict(l=20, r=20, t=30, b=20),
         legend=dict(orientation="h", y=1.15, x=0.5, xanchor="center"),
-        xaxis_title="Erreur de provision / Résidu (%)",
+        xaxis_title="Erreur de prévision / Résidu (%)",
         yaxis_title="Densité de probabilité",
     )
     st.plotly_chart(fig_dist, use_container_width=True)
@@ -2367,7 +2367,7 @@ with col_wf:
   st.dataframe(df_wf_table, hide_index=True, use_container_width=True)
 
 with col_proj:
-  st.subheader("🔮 Provisions Futures & Export")
+  st.subheader("🔮 Prévisions Futures & Export")
 
   proj_data = []
   export_rows = []
@@ -2386,7 +2386,7 @@ with col_proj:
       proj_data.append({
           "Horizon": f"{yr}Y",
           "LPPL Target": f"${proj_price:,.0f}",
-          "Cône Provision (±1σ)": f"${cone_lower:,.0f} - ${cone_upper:,.0f}",
+          "Cône Prévision (±1σ)": f"${cone_lower:,.0f} - ${cone_upper:,.0f}",
       })
       export_rows.append({
           "Horizon": f"{yr}Y",
@@ -2404,12 +2404,12 @@ with col_proj:
   csv_data = df_export.to_csv(index=False).encode("utf-8")
 
   st.download_button(
-      label="📥 Télécharger les provisions (CSV)",
+      label="📥 Télécharger les prévisions (CSV)",
       data=csv_data,
-      file_name=f"btc_lppl_provisions_{last_date.strftime('%Y%m%d')}.csv",
+      file_name=f"btc_lppl_prévisions_{last_date.strftime('%Y%m%d')}.csv",
       mime="text/csv",
       help=(
-          "Exporte l'ensemble des provisions futures et bandes de tendance au"
+          "Exporte l'ensemble des prévisions futures et bandes de tendance au"
           " format CSV."
       ),
   )
