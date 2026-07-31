@@ -1687,7 +1687,7 @@ with col_left:
       template="plotly_dark",
       title="Fractions d'énergie Twist/Writhe",
       height=450,
-      margin=dict(l=20, r=20, t=40, b=20),
+      margin=dict(l=20, r=20, t=70, b=30),
       yaxis=dict(title="Fraction", range=[0, 1.0]),
       xaxis=dict(title="Date"),
       legend=dict(
@@ -1713,23 +1713,29 @@ with col_right:
         * Les amplitudes sont modulées dynamiquement par leurs fractions d'énergie respectives.
         """)
 
-  col_h_chk1, col_h_chk2, col_h_chk3, col_h_chk4, col_h_chk5 = st.columns(5)
-  with col_h_chk1:
-    show_h05 = st.checkbox("0.5w", value=True, key="chk_h05")
-  with col_h_chk2:
-    show_h10 = st.checkbox("1w", value=True, key="chk_h10")
-  with col_h_chk3:
-    show_h20 = st.checkbox("2w", value=True, key="chk_h20")
-  with col_h_chk4:
-    show_h30 = st.checkbox("3w", value=True, key="chk_h30")
-  with col_h_chk5:
-    show_h40 = st.checkbox("4w", value=True, key="chk_h40")
+  # Zones de texte / saisie pour paramétrer les phases et afficher les modes
+  with st.expander(
+      "⚙️ Paramétrage des phases ($\phi$) & Affichage des modes", expanded=False
+  ):
+    st.markdown("**Affichage des modes :**")
+    col_h_chk1, col_h_chk2, col_h_chk3, col_h_chk4, col_h_chk5 = st.columns(5)
+    with col_h_chk1:
+      show_h05 = st.checkbox("0.5w", value=True, key="chk_h05")
+    with col_h_chk2:
+      show_h10 = st.checkbox("1w", value=True, key="chk_h10")
+    with col_h_chk3:
+      show_h20 = st.checkbox("2w", value=True, key="chk_h20")
+    with col_h_chk4:
+      show_h30 = st.checkbox("3w", value=True, key="chk_h30")
+    with col_h_chk5:
+      show_h40 = st.checkbox("4w", value=True, key="chk_h40")
 
-  # Case à cocher pour la somme totale
-  show_sum = st.checkbox("Afficher la somme totale", value=True, key="chk_h_sum")
+    show_sum = st.checkbox(
+        "Afficher la somme totale", value=True, key="chk_h_sum"
+    )
 
-  # Zones de texte / saisie pour paramétrer les phases de chaque composante
-  with st.expander("⚙️ Paramétrage individuel des phases ($\phi$)"):
+    st.markdown("---")
+    st.markdown("**Phases individuelles ($\phi$) :**")
     col_p1, col_p2, col_p3, col_p4, col_p5 = st.columns(5)
     with col_p1:
       phase_05 = st.number_input(
@@ -1836,7 +1842,7 @@ with col_right:
       xaxis=dict(title="Date"),
       legend=dict(
           orientation="h",
-          y=1.15,
+          y=1.0,
           x=0.5,
           xanchor="center",
           bgcolor="rgba(0,0,0,0.6)",
