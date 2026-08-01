@@ -21,13 +21,13 @@ st.title("₿ Bitcoin PowerLaw + LPPL (2 Harmonics) - Advanced Analytics")
 
 # Initialisation des variables dans le Session State
 DEFAULT_PARAMS = {
-    "A": -38.32,
-    "B": 5.733,
-    "C1": 3.0,
+    "A": -38.35,
+    "B": 5.738,
+    "C1": 3.31,
     "omega": 8.635,
-    "phi1": -2.1,
+    "phi1": -2.08,
     "C2": 0.63,
-    "phi2": -2.7,
+    "phi2": -2.99,
 }
 
 for key, val in DEFAULT_PARAMS.items():
@@ -410,10 +410,10 @@ def perform_auto_calibration(current_use_energy):
     bounds = [
         (-42.0, -34.0),
         (5.5, 6.0),
-        (0.0, 6.0),
+        (0.0, 4.0),
         (8.5, 9.0),
         (-2.2, -2.05),
-        (0.0, 4.0),
+        (0.0, 2.0),
         (-np.pi, np.pi)
     ]
 
@@ -1309,9 +1309,9 @@ with st.expander("❓ Guide de Lecture - Indice de Risque de Rupture"):
   st.markdown("""
     * Cet indice synthétise la probabilité d'entrée en régime critique (système instable type tas de sable).
     * **0 - 25% (Vert)** : Marché sain, en phase de fond ou d'accumulation.
-    * **25 - 50% (Bleu)** : Croissance organique alignée sur la Power Law.
-    * **50 - 75% (Orange)** : Phase spéculative avancée, signaux d'alerte macro.
-    * **> 75% (Rouge)** : Zone de criticité maximale, probabilité élevée de rupture ou de retournement de cycle.
+    * **25 - 40% (Bleu)** : Croissance organique alignée sur la Power Law.
+    * **40 - 60% (Orange)** : Phase spéculative avancée, signaux d'alerte macro.
+    * **> 60% (Rouge)** : Zone de criticité maximale, probabilité élevée de rupture ou de retournement de cycle.
     """)
 
 fig_hazard = go.Figure()
@@ -1325,24 +1325,24 @@ fig_hazard.add_trace(
         fill="tozeroy",
         fillcolor=(
             "rgba(255, 0, 0, 0.1)"
-            if current_hazard > 75
+            if current_hazard > 60
             else "rgba(56, 189, 248, 0.1)"
         ),
     )
 )
 
 fig_hazard.add_hline(
-    y=75,
+    y=60,
     line_dash="dash",
     line_color="#FF0000",
-    annotation_text="Seuil Critique (75%)",
+    annotation_text="Seuil Critique (60%)",
     annotation_position="top right",
 )
 fig_hazard.add_hline(
-    y=50,
+    y=40,
     line_dash="dot",
     line_color="#FFA500",
-    annotation_text="Seuil d'Alerte (50%)",
+    annotation_text="Seuil d'Alerte (40%)",
     annotation_position="top right",
 )
 
@@ -1923,19 +1923,19 @@ with col_right:
       )
     with col_p2:
       phase_10 = st.number_input(
-          "Phase 1.0ω", value=float(-1.98), format="%.4f", key="phase_10_val"
+          "Phase 1.0ω", value=float(-2.11), format="%.4f", key="phase_10_val"
       )
     with col_p3:
       phase_20 = st.number_input(
-          "Phase 2.0w", value=float(-0.4), format="%.4f", key="phase_20_val"
+          "Phase 2.0w", value=float(-1.24), format="%.4f", key="phase_20_val"
       )
     with col_p4:
       phase_30 = st.number_input(
-          "Phase 3.0ω", value=float(-2.71), format="%.4f", key="phase_30_val"
+          "Phase 3.0ω", value=float(1.93), format="%.4f", key="phase_30_val"
       )
     with col_p5:
       phase_40 = st.number_input(
-          "Phase 4.0ω", value=float(-2.71), format="%.4f", key="phase_40_val"
+          "Phase 4.0ω", value=float(3.14), format="%.4f", key="phase_40_val"
       )
 
   wave_05 = (C1 * 0.4) * f_05_s * np.cos(0.5 * omega * lnT_full + phase_05)
