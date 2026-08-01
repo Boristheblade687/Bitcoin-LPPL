@@ -408,12 +408,12 @@ def perform_auto_calibration(current_use_energy):
         return np.mean((act_log_vec - preds) ** 2)
 
     bounds = [
-        (-45.0, -25.0),
-        (4.5, 6.8),
-        (0.0, 3.0),
-        (8.0, 9.0),
-        (-np.pi, np.pi),
-        (0.0, 2.0),
+        (-42.0, -34.0),
+        (5.5, 6.0),
+        (0.0, 6.0),
+        (8.5, 9.0),
+        (-2.2, -2.05),
+        (0.0, 4.0),
         (-np.pi, np.pi)
     ]
 
@@ -421,8 +421,8 @@ def perform_auto_calibration(current_use_energy):
         loss_func_fast,
         bounds=bounds,
         strategy='best1bin',
-        maxiter=200,
-        popsize=15,
+        maxiter=250,
+        popsize=25,
         polish=True,
         seed=42
     )
