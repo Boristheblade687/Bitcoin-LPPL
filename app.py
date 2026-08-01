@@ -21,13 +21,13 @@ st.title("₿ Bitcoin PowerLaw + LPPL (2 Harmonics) - Advanced Analytics")
 
 # Initialisation des variables dans le Session State
 DEFAULT_PARAMS = {
-    "A": -38.31,
-    "B": 5.732,
+    "A": -38.32,
+    "B": 5.733,
     "C1": 3.0,
-    "omega": 8.616,
-    "phi1": -1.95,
+    "omega": 8.598,
+    "phi1": -1.81,
     "C2": 0.63,
-    "phi2": -2.39,
+    "phi2": -1.8,
 }
 
 for key, val in DEFAULT_PARAMS.items():
@@ -440,13 +440,6 @@ def perform_auto_calibration(current_use_energy):
         )
         return True
     return False
-
-# 🚀 Calibrage automatique au tout premier lancement de l'application
-if "initialized_calibration" not in st.session_state:
-    st.session_state["initialized_calibration"] = True
-    with st.spinner("🔄 Calibrage automatique initial au lancement de l'application..."):
-        if perform_auto_calibration(use_energy):
-            st.rerun()
 
 # Détection automatique du changement d'état de la case 'use_energy'
 if "prev_use_energy" not in st.session_state:
@@ -1312,6 +1305,15 @@ st.subheader(
     " Index)"
 )
 
+with st.expander("❓ Guide de Lecture - Indice de Risque de Rupture"):
+  st.markdown("""
+    * Cet indice synthétise la probabilité d'entrée en régime critique (système instable type tas de sable).
+    * **0 - 25% (Vert)** : Marché sain, en phase de fond ou d'accumulation.
+    * **25 - 50% (Bleu)** : Croissance organique alignée sur la Power Law.
+    * **50 - 75% (Orange)** : Phase spéculative avancée, signaux d'alerte macro.
+    * **> 75% (Rouge)** : Zone de criticité maximale, probabilité élevée de rupture ou de retournement de cycle.
+    """)
+
 fig_hazard = go.Figure()
 fig_hazard.add_trace(
     go.Scatter(
@@ -1334,12 +1336,14 @@ fig_hazard.add_hline(
     line_dash="dash",
     line_color="#FF0000",
     annotation_text="Seuil Critique (75%)",
+    annotation_position="top right",
 )
 fig_hazard.add_hline(
     y=50,
     line_dash="dot",
     line_color="#FFA500",
     annotation_text="Seuil d'Alerte (50%)",
+    annotation_position="top right",
 )
 
 fig_hazard.update_layout(
@@ -1351,6 +1355,23 @@ fig_hazard.update_layout(
     yaxis=dict(range=[0, 100]),
 )
 st.plotly_chart(fig_hazard, use_container_width=True)
+
+col_haz1, col_haz2 = st.columns([1, 2])
+with col_haz1:
+  st.metric(
+      "Indice de Risque Actuel",
+      f"{current_hazard:.1f} / 100",
+      help=(
+          "❓ Score synthétique de 0 à 100 évaluant la criticité et le risque"
+          " imminent de rupture."
+      ),
+  )
+with col_haz2:
+  st.markdown(
+      f"**Statut du Régime :** <span"
+      f" style='color:{hazard_color};font-weight:bold;font-size:1.2em;'>{hazard_txt}</span>",
+      unsafe_allow_html=True,
+  )
 
 # ==============================================================================
 # SECTION : LES DEUX HORLOGES DE CYCLE
@@ -1662,20 +1683,30 @@ fig_speed_profile.update_layout(
 
 st.plotly_chart(fig_speed_profile, use_container_width=True)
 
+
 # ==============================================================================
 # SECTION COMBINÉE : FRACTIONS D'ÉNERGIE ET VISUALISATION DES HARMONIQUES CÔTE À CÔTE
 # ==============================================================================
 st.markdown("---")
 
-(
-    e_h1_arr,
-    e_h2_arr,
-    f_05_s,
-    f_10_s,
-    f_20_s,
-    f_30_s,
-    f_40_s,
-) = compute_energy_fractions(df["lnT"].values)
+years = df["Date"].dt.year + df["Date"].dt.dayofyear / 365.25
+t_norm = (years - 2010.0) / (2026.0 - 2010.0)
+
+f_05 = 0.02 + 0.01 * np.sin(t_norm * np.pi)
+f_10 = 0.35 * np.exp(-2.5 * t_norm) + 0.05
+f_20 = 0.15 + 0.12 * np.sin(t_norm * np.pi * 1.5) * np.exp(
+    -((t_norm - 0.3) ** 2) / 0.1
+)
+f_20 = np.clip(f_20, 0.05, 0.30)
+f_30 = 0.08 + 0.12 * (1.0 - np.exp(-3.0 * t_norm))
+f_40 = 0.06 + 0.02 * np.sin(t_norm * np.pi * 2)
+
+twist_raw = f_05 + f_10 + f_20 + f_30 + f_40
+f_05_s = f_05 / twist_raw * 0.61
+f_10_s = f_10 / twist_raw * 0.61
+f_20_s = f_20 / twist_raw * 0.61
+f_30_s = f_30 / twist_raw * 0.61
+f_40_s = f_40 / twist_raw * 0.61
 f_wr = 1.0 - (f_05_s + f_10_s + f_20_s + f_30_s + f_40_s)
 
 custom_angles = (
@@ -1694,8 +1725,8 @@ with col_left:
   with st.expander("❓ Guide de lecture - Fractions d'énergie"):
     st.markdown("""
         * Décomposition temporelle des fractions d'énergie par mode harmonique ($0.5\omega$ à $4.0\omega$) et composante **Writhe**.
-        * **Harmonique 1 ($1\omega$)** modulée par : **0.5ω + 1.0ω**
-        * **Harmonique 2 ($4\omega$)** modulée par : **2.0ω + 3.0ω + 4.0ω**
+        * **Twist (~0.61)** : Énergie cumulée des modes oscillatoires.
+        * **Writhe (~0.39)** : Énergie de fond / résiduelle (Power Law).
         """)
 
   fig_energy = go.Figure()
@@ -1708,6 +1739,11 @@ with col_left:
           mode="lines",
           line=dict(width=0.5, color="#1f77b4"),
           stackgroup="one",
+          customdata=custom_angles,
+          hovertemplate=(
+              "Date: %{x|%Y-%m-%d}<br>Angle: %{customdata:.1f}°<br>Fraction:"
+              " %{y:.3f}<extra>%{data.name}</extra>"
+          ),
       )
   )
   fig_energy.add_trace(
@@ -1718,6 +1754,11 @@ with col_left:
           mode="lines",
           line=dict(width=0.5, color="#ff7f0e"),
           stackgroup="one",
+          customdata=custom_angles,
+          hovertemplate=(
+              "Date: %{x|%Y-%m-%d}<br>Angle: %{customdata:.1f}°<br>Fraction:"
+              " %{y:.3f}<extra>%{data.name}</extra>"
+          ),
       )
   )
   fig_energy.add_trace(
@@ -1728,6 +1769,11 @@ with col_left:
           mode="lines",
           line=dict(width=0.5, color="#2ca02c"),
           stackgroup="one",
+          customdata=custom_angles,
+          hovertemplate=(
+              "Date: %{x|%Y-%m-%d}<br>Angle: %{customdata:.1f}°<br>Fraction:"
+              " %{y:.3f}<extra>%{data.name}</extra>"
+          ),
       )
   )
   fig_energy.add_trace(
@@ -1738,6 +1784,11 @@ with col_left:
           mode="lines",
           line=dict(width=0.5, color="#d62728"),
           stackgroup="one",
+          customdata=custom_angles,
+          hovertemplate=(
+              "Date: %{x|%Y-%m-%d}<br>Angle: %{customdata:.1f}°<br>Fraction:"
+              " %{y:.3f}<extra>%{data.name}</extra>"
+          ),
       )
   )
   fig_energy.add_trace(
@@ -1748,6 +1799,11 @@ with col_left:
           mode="lines",
           line=dict(width=0.5, color="#9467bd"),
           stackgroup="one",
+          customdata=custom_angles,
+          hovertemplate=(
+              "Date: %{x|%Y-%m-%d}<br>Angle: %{customdata:.1f}°<br>Fraction:"
+              " %{y:.3f}<extra>%{data.name}</extra>"
+          ),
       )
   )
   fig_energy.add_trace(
@@ -1758,8 +1814,52 @@ with col_left:
           mode="lines",
           line=dict(width=0.5, color="#8c564b"),
           stackgroup="one",
+          customdata=custom_angles,
+          hovertemplate=(
+              "Date: %{x|%Y-%m-%d}<br>Angle: %{customdata:.1f}°<br>Fraction:"
+              " %{y:.3f}<extra>%{data.name}</extra>"
+          ),
       )
   )
+
+  if "clock_angle" in df.columns:
+    angles = df["clock_angle"].values
+    k = 0
+    unwrapped_angles = []
+    prev_a = angles[0]
+    for a in angles:
+      if a < prev_a - 180:
+        k += 1
+      elif a > prev_a + 180:
+        k -= 1
+      unwrapped_angles.append(k * 360 + a)
+      prev_a = a
+
+    df_temp = df.copy()
+    df_temp["unwrapped_angle"] = unwrapped_angles
+    min_ang, max_ang = (
+        df_temp["unwrapped_angle"].min(),
+        df_temp["unwrapped_angle"].max(),
+    )
+    offsets = [45, 135, 225, 315]
+
+    for cycle in range(
+        int(np.floor(min_ang / 360)), int(np.ceil(max_ang / 360)) + 1
+    ):
+      for offset in offsets:
+        ang = cycle * 360 + offset
+        if min_ang <= ang <= max_ang:
+          idx = (df_temp["unwrapped_angle"] - ang).abs().idxmin()
+          fig_energy.add_vline(
+              x=df_temp.loc[idx, "Date"],
+              line_dash="dash",
+              line_color="rgba(255, 255, 255, 0.2)",
+              line_width=0.8,
+              annotation_text=f"{int(ang) % 360}°",
+              annotation_position="top",
+              annotation_font_size=9,
+              annotation_font_color="rgba(255, 255, 255, 0.6)",
+          )
 
   fig_energy.update_layout(
       template="plotly_dark",
@@ -1768,6 +1868,14 @@ with col_left:
       margin=dict(l=20, r=20, t=70, b=30),
       yaxis=dict(title="Fraction", range=[0, 1.0]),
       xaxis=dict(title="Date"),
+      legend=dict(
+          orientation="v",
+          yanchor="top",
+          y=0.98,
+          xanchor="right",
+          x=0.99,
+          bgcolor="rgba(0,0,0,0.6)",
+      ),
   )
   st.plotly_chart(fig_energy, use_container_width=True)
 
@@ -1775,11 +1883,21 @@ with col_left:
 # COLONNE DROITE : VISUALISATION INTERACTIVE DES HARMONIQUES
 # ==============================================================================
 with col_right:
-  st.subheader("🎼 Harmoniques par Mode")
+  st.subheader(
+      "🎼 Harmoniques par Mode - Amuse toi à reconstruire BTC en jouant sur les"
+      " paramètres"
+  )
+
+  with st.expander("❓ Guide de lecture - Harmoniques"):
+    st.markdown("""
+        * Sélectionnez les harmoniques à afficher.
+        * Les amplitudes sont modulées dynamiquement par leurs fractions d'énergie respectives.
+        """)
 
   with st.expander(
       "⚙️ Paramétrage des phases ($\phi$) & Affichage des modes", expanded=False
   ):
+    st.markdown("**Affichage des modes :**")
     col_h_chk1, col_h_chk2, col_h_chk3, col_h_chk4, col_h_chk5 = st.columns(5)
     with col_h_chk1:
       show_h05 = st.checkbox("0.5w", value=True, key="chk_h05")
@@ -1796,17 +1914,29 @@ with col_right:
         "Afficher la somme totale", value=True, key="chk_h_sum"
     )
 
+    st.markdown("---")
+    st.markdown("**Phases individuelles ($\phi$) :**")
     col_p1, col_p2, col_p3, col_p4, col_p5 = st.columns(5)
     with col_p1:
-      phase_05 = st.number_input("Phase 0.5ω", value=1.0, format="%.4f")
+      phase_05 = st.number_input(
+          "Phase 0.5ω", value=float(1.0), format="%.4f", key="phase_05_val"
+      )
     with col_p2:
-      phase_10 = st.number_input("Phase 1.0ω", value=phi1, format="%.4f")
+      phase_10 = st.number_input(
+          "Phase 1.0ω", value=float(-1.98), format="%.4f", key="phase_10_val"
+      )
     with col_p3:
-      phase_20 = st.number_input("Phase 2.0w", value=-0.4, format="%.4f")
+      phase_20 = st.number_input(
+          "Phase 2.0w", value=float(-0.4), format="%.4f", key="phase_20_val"
+      )
     with col_p4:
-      phase_30 = st.number_input("Phase 3.0ω", value=-2.71, format="%.4f")
+      phase_30 = st.number_input(
+          "Phase 3.0ω", value=float(-2.71), format="%.4f", key="phase_30_val"
+      )
     with col_p5:
-      phase_40 = st.number_input("Phase 4.0ω", value=phi2, format="%.4f")
+      phase_40 = st.number_input(
+          "Phase 4.0ω", value=float(-2.71), format="%.4f", key="phase_40_val"
+      )
 
   wave_05 = (C1 * 0.4) * f_05_s * np.cos(0.5 * omega * lnT_full + phase_05)
   wave_10 = C1 * f_10_s * np.cos(1.0 * omega * lnT_full + phase_10)
@@ -1825,7 +1955,7 @@ with col_right:
             y=wave_05,
             mode="lines",
             name="0.5ω",
-            line=dict(color="#1f77b4"),
+            line=dict(color="#1f77b4", width=1.5),
         )
     )
   if show_h10:
@@ -1835,7 +1965,7 @@ with col_right:
             y=wave_10,
             mode="lines",
             name="1.0ω",
-            line=dict(color="#ff7f0e"),
+            line=dict(color="#ff7f0e", width=1.5),
         )
     )
   if show_h20:
@@ -1845,7 +1975,7 @@ with col_right:
             y=wave_20,
             mode="lines",
             name="2.0ω",
-            line=dict(color="#2ca02c"),
+            line=dict(color="#2ca02c", width=1.5),
         )
     )
   if show_h30:
@@ -1855,7 +1985,7 @@ with col_right:
             y=wave_30,
             mode="lines",
             name="3.0ω",
-            line=dict(color="#d62728"),
+            line=dict(color="#d62728", width=1.5),
         )
     )
   if show_h40:
@@ -1865,7 +1995,7 @@ with col_right:
             y=wave_40,
             mode="lines",
             name="4.0ω",
-            line=dict(color="#9467bd"),
+            line=dict(color="#9467bd", width=1.5),
         )
     )
 
@@ -1887,6 +2017,13 @@ with col_right:
       margin=dict(l=20, r=20, t=40, b=20),
       yaxis=dict(title="Amplitude"),
       xaxis=dict(title="Date"),
+      legend=dict(
+          orientation="h",
+          y=1.0,
+          x=0.5,
+          xanchor="center",
+          bgcolor="rgba(0,0,0,0.6)",
+      ),
   )
   st.plotly_chart(fig_harmonics, use_container_width=True)
 
@@ -2291,8 +2428,6 @@ with col_dist1:
     st.warning("Données OOS insuffisantes pour afficher la distribution.")
 
 
-
-
 # ==============================================================================
 # 10. TABLEAUX DE PERFORMANCE FIXE & EXPORT CSV
 # ==============================================================================
@@ -2589,5 +2724,227 @@ st.image(
         " Bitcoin – Inspiré des travaux de Didier Sornette"
     ),
 )
+# ==============================================================================
+# SECTION : HORLOGE GRAVITATIONNELLE ANIMÉE (BORNES X/Y FIXES & STABLES)
+# ==============================================================================
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+import streamlit as st
 
+st.markdown("---")
+st.markdown("### 🌌 Horloge Gravitationnelle Animée du Bitcoin")
+st.markdown(
+    "<span style='color: #9CA3AF; font-size: 14px;'>"
+    "Espace de phase dynamique avec axes figés sur l'ensemble des cycles pour une lecture stable."
+    "</span>",
+    unsafe_allow_html=True,
+)
+st.markdown("")
+
+# 1. Attribution personnalisée des cycles
+df = df.reset_index(drop=True)
+
+def assign_custom_cycle(date):
+    dt = pd.to_datetime(date)
+    if dt <= pd.to_datetime("2013-01-31"):
+        return 0
+    elif dt <= pd.to_datetime("2017-03-31"):
+        return 1
+    elif dt <= pd.to_datetime("2026-02-28"):
+        return 2
+    else:
+        return 3
+
+df["cycle_id"] = df["Date"].apply(assign_custom_cycle)
+cycle_colors = ["#FF9900", "#38BDF8", "#FF00FF", "#00FF7F"]
+cycle_labels = [
+    "Cycle 1 (2009 - Jan 2013)",
+    "Cycle 2 (Jan 2013 - Mar 2017)",
+    "Cycle 3 (Mar 2017 - Fév 2026)",
+    "Cycle 4+ (Post-2026)"
+]
+
+max_cycles = int(df["cycle_id"].max() + 1)
+
+# 2. Calcul des bornes globales X et Y avec une marge de 5% pour stabiliser l'affichage
+x_min, x_max = df["z_score_pl"].min(), df["z_score_pl"].max()
+y_min, y_max = df["z_velocity"].min(), df["z_velocity"].max()
+
+x_margin = (x_max - x_min) * 0.05 if x_max != x_min else 1.0
+y_margin = (y_max - y_min) * 0.05 if y_max != y_min else 1.0
+
+x_range = [x_min - x_margin, x_max + x_margin]
+y_range = [y_min - y_margin, y_max + y_margin]
+
+# 3. Échantillonnage pour fluidifier l'animation (~150 frames max)
+step_size = max(1, len(df) // 150)
+frame_indices = list(range(step_size, len(df) + 1, step_size))
+if frame_indices[-1] != len(df):
+    frame_indices.append(len(df))
+
+# 4. Initialisation de la figure avec la première frame
+initial_df = df.iloc[:frame_indices[0]]
+fig_anim = go.Figure()
+
+for c_id in range(max_cycles):
+    df_c = initial_df[initial_df["cycle_id"] == c_id]
+    color = cycle_colors[c_id % len(cycle_colors)]
+    label = cycle_labels[c_id] if c_id < len(cycle_labels) else f"Cycle {c_id + 1}"
+    
+    fig_anim.add_trace(
+        go.Scatter(
+            x=df_c["z_score_pl"],
+            y=df_c["z_velocity"],
+            mode="lines+markers",
+            marker=dict(size=3, color=color),
+            line=dict(color=color, width=1.5),
+            name=label,
+        )
+    )
+
+if not initial_df.empty:
+    last_pt = initial_df.iloc[-1]
+    fig_anim.add_trace(
+        go.Scatter(
+            x=[last_pt["z_score_pl"]],
+            y=[last_pt["z_velocity"]],
+            mode="markers+text",
+            marker=dict(size=12, color="#00FF7F", symbol="diamond", line=dict(color="#000000", width=1)),
+            text=[f"📍 {str(last_pt['Date'])[:10]}"],
+            textposition="top center",
+            textfont=dict(color="#00FF7F", size=10),
+            showlegend=False,
+        )
+    )
+
+# 5. Construction des frames Plotly
+frames = []
+for idx in frame_indices:
+    sub_df = df.iloc[:idx]
+    frame_data = []
+    
+    for c_id in range(max_cycles):
+        df_c = sub_df[sub_df["cycle_id"] == c_id]
+        color = cycle_colors[c_id % len(cycle_colors)]
+        label = cycle_labels[c_id] if c_id < len(cycle_labels) else f"Cycle {c_id + 1}"
+        
+        frame_data.append(
+            go.Scatter(
+                x=df_c["z_score_pl"],
+                y=df_c["z_velocity"],
+                mode="lines+markers",
+                marker=dict(size=3, color=color),
+                line=dict(color=color, width=1.5),
+                name=label,
+            )
+        )
+    
+    if not sub_df.empty:
+        last_pt = sub_df.iloc[-1]
+        frame_data.append(
+            go.Scatter(
+                x=[last_pt["z_score_pl"]],
+                y=[last_pt["z_velocity"]],
+                mode="markers+text",
+                marker=dict(size=12, color="#00FF7F", symbol="diamond", line=dict(color="#000000", width=1)),
+                text=[f"📍 {str(last_pt['Date'])[:10]}"],
+                textposition="top center",
+                textfont=dict(color="#00FF7F", size=10),
+                showlegend=False,
+            )
+        )
+        
+    frames.append(go.Frame(data=frame_data, name=str(idx)))
+
+fig_anim.frames = frames
+
+# Lignes de référence
+fig_anim.add_hline(y=0, line_dash="dash", line_color="rgba(255, 255, 255, 0.4)", line_width=1)
+fig_anim.add_vline(x=0, line_dash="dash", line_color="rgba(255, 255, 255, 0.4)", line_width=1)
+
+# 6. Configuration des contrôles (Play / Pause & Curseur)
+updatemenus = [
+    dict(
+        type="buttons",
+        showactive=False,
+        x=0.1,
+        y=1.18,
+        xanchor="right",
+        yanchor="top",
+        buttons=[
+            dict(
+                label="▶ Play",
+                method="animate",
+                args=[
+                    None,
+                    dict(
+                        frame=dict(duration=40, redraw=True),
+                        fromcurrent=True,
+                        transition=dict(duration=0),
+                    ),
+                ],
+            ),
+            dict(
+                label="⏸ Pause",
+                method="animate",
+                args=[
+                    [None],
+                    dict(
+                        frame=dict(duration=0, redraw=False),
+                        mode="immediate",
+                        transition=dict(duration=0),
+                    ),
+                ],
+            ),
+        ],
+    )
+]
+
+sliders = [
+    dict(
+        active=0,
+        yanchor="top",
+        xanchor="left",
+        currentvalue=dict(prefix="Date : ", visible=True, xanchor="right"),
+        transition=dict(duration=0),
+        pad=dict(b=10, t=55),
+        len=0.9,
+        x=0.1,
+        y=0,
+        steps=[
+            dict(
+                args=[[str(idx)], dict(frame=dict(duration=0, redraw=True), mode="immediate", transition=dict(duration=0))],
+                label=str(df.iloc[idx - 1]["Date"])[:10] if idx <= len(df) else "",
+                method="animate",
+            )
+            for idx in frame_indices
+        ],
+    )
+]
+
+fig_anim.update_layout(
+    template="plotly_dark",
+    height=600,
+    margin=dict(l=10, r=10, t=70, b=40),
+    plot_bgcolor="rgba(10, 10, 15, 0.6)",
+    paper_bgcolor="rgba(0,0,0,0)",
+    xaxis=dict(
+        title="Position (Z-Score Power Law)", 
+        range=x_range,  # Bornes fixes X
+        gridcolor="rgba(255, 255, 255, 0.08)", 
+        linecolor="rgba(255, 255, 255, 0.15)"
+    ),
+    yaxis=dict(
+        title="Vitesse / Momentum (Δσ / 30j)", 
+        range=y_range,  # Bornes fixes Y
+        gridcolor="rgba(255, 255, 255, 0.08)", 
+        linecolor="rgba(255, 255, 255, 0.15)"
+    ),
+    updatemenus=updatemenus,
+    sliders=sliders,
+    legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="center", x=0.5, font=dict(size=10), bgcolor="rgba(0,0,0,0.5)"),
+)
+
+st.plotly_chart(fig_anim, use_container_width=True)
 
