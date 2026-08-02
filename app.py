@@ -2027,7 +2027,6 @@ with col_right:
   )
   st.plotly_chart(fig_harmonics, use_container_width=True)
 
-
 # ==============================================================================
 # SECTION : COURBE DE PREVISION OOS (HORIZON PERSONNALISABLE)
 # ==============================================================================
@@ -2050,6 +2049,13 @@ st.subheader(
     f"📈 Comparaison de la Courbe de Prévision Out-Of-Sample"
     f" ({current_label}) vs Prix Réel"
 )
+
+with st.expander("❓ Guide de Lecture - Courbe de Prévision Out-Of-Sample"):
+  st.markdown("""
+    * **Prix BTC Réel (Gris)** : L'historique des prix observés de Bitcoin.
+    * **Courbe OOS (Bleu pointillé)** : Prévision réalisée par le modèle en se projetant hors de l'échantillon d'apprentissage pour l'horizon choisi.
+    * **Utilité** : Permet d'évaluer visuellement la robustesse et la capacité prédictive du modèle sur des données qu'il n'a pas "vues" lors de son entraînement.
+    """)
 
 selected_oos_chart_label = st.selectbox(
     "Sélectionner l'horizon OOS pour la comparaison de prévision",
@@ -2115,6 +2121,12 @@ st.plotly_chart(fig_oos_parallel, use_container_width=True)
 # ==============================================================================
 st.markdown("---")
 st.subheader("🔄 Stabilité Temporelle (Rolling Walk-Forward Analysis)")
+
+with st.expander("❓ Guide de Lecture - Stabilité Temporelle (Walk-Forward)"):
+  st.markdown("""
+    * **Principe** : Évalue comment les performances du modèle évoluent dynamiquement en le ré-entraînant et en le testant par fenêtres glissantes.
+    * **RMSE / MAE OOS (%)** : Mesurent l'erreur de prévision hors échantillon. Une courbe stable ou orientée à la baisse témoigne d'un modèle robuste dans le temps.
+    """)
 
 col_rwf_params, col_rwf_chart = st.columns([1, 3])
 
@@ -2192,6 +2204,12 @@ with col_rwf_chart:
 # ==============================================================================
 st.markdown("---")
 st.subheader("🎯 Contribution des Erreurs par Niveau de Sigma (σ) et Brackets")
+
+with st.expander("❓ Guide de Lecture - Analyse des Brackets Sigma"):
+  st.markdown("""
+    * **Intervalles Sigma ($\sigma$)** : Regroupent les écarts entre les prix réels et les prévisions selon leur distance à l'écart-type.
+    * **Part des points vs Contribution MSE** : Permet de voir si l'erreur globale provient d'un grand nombre de petits écarts ou de quelques déviations massives (queues de distribution).
+    """)
 
 sigma_horizon_options = {
     "In-Sample (Modèle Global)": 0,
@@ -2325,6 +2343,14 @@ st.subheader(
     "📊 Distribution empirique des résidus vs Loi de Student (Fat Tails Check)"
 )
 
+with st.expander(
+    "❓ Guide de Lecture - Distribution des Résidus & Loi de Student"
+):
+  st.markdown("""
+    * **Loi de Student vs Normale** : Les marchés financiers (et Bitcoin en particulier) présentent des "queues lourdes" (*fat tails*). La loi de Student ajuste mieux ces extrêmes que la loi normale.
+    * **Degrés de liberté (df)** : Plus le paramètre $df$ est faible, plus la distribution a tendance à s'écarter de la normalité et à intégrer des variations extrêmes probables.
+    """)
+
 dist_horizon_options = {
     "In-Sample (Modèle Global)": 0,
     "3 mois (90 jours) Out-Of-Sample": 90,
@@ -2432,6 +2458,16 @@ with col_dist1:
 # 10. TABLEAUX DE PERFORMANCE FIXE & EXPORT CSV
 # ==============================================================================
 st.markdown("---")
+
+with st.expander(
+    "❓ Guide de Lecture - Performance Walk-Forward & Prévisions Futures"
+):
+  st.markdown("""
+    * **Directional Accuracy (%)** : Pourcentage de fois où le modèle a correctement anticipé la direction du mouvement (hausse vs baisse).
+    * **Alpha Edge (%)** : Surperformance par rapport à une stratégie de référence passive.
+    * **Cône de Prévision ($\pm 1\sigma$)** : Fourchette d'incertitude encadrant la cible LPPL en fonction de la volatilité passée.
+    """)
+
 col_wf, col_proj = st.columns(2)
 
 with col_wf:
@@ -2715,6 +2751,13 @@ else:
 # ==============================================================================
 st.markdown("---")
 st.subheader("📚 Schéma Conceptuel : Le Tas de Sable de Bitcoin & LPPL")
+
+with st.expander("❓ Guide de Lecture - Schéma Conceptuel (Tas de Sable)"):
+  st.markdown("""
+    * **Criticalité Auto-organisée (SOC)** : Analogie physique popularisée par Per Bak et appliquée par Didier Sornette aux bulles financières.
+    * **Application Bitcoin** : Montre comment l'accumulation progressive de tensions sur le marché finit par provoquer des ruptures non linéaires (krachs ou bulles paraboliques).
+    """)
+
 st.image(
     "tas_de_sable.png",
     use_container_width=True,
@@ -2723,4 +2766,3 @@ st.image(
         " Bitcoin – Inspiré des travaux de Didier Sornette"
     ),
 )
-
