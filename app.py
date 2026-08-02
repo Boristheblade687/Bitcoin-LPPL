@@ -109,7 +109,7 @@ pl_sigma = st.sidebar.slider(
 pl_sigma_upper = pl_sigma
 pl_sigma_lower = pl_sigma
 
-with st.sidebar.expander("📌 Power Law (Tendance Fondamentale)", expanded=True):
+with st.sidebar.expander("📌 Power Law (Tendance Fondamentale)", expanded=False):
   st.caption(
       "Ajuste la tendance logarithmique fondamentale du prix (Prix = exp(A +"
       " B * ln(t)))."
@@ -135,7 +135,7 @@ with st.sidebar.expander("📌 Power Law (Tendance Fondamentale)", expanded=True
       ),
   )
 
-with st.sidebar.expander("🎛️ Options du Modèle & Affichage", expanded=True):
+with st.sidebar.expander("🎛️ Options du Modèle & Affichage", expanded=False):
   show_trend = st.checkbox(
       "Afficher la Tendance (Power Law)",
       value=True,
@@ -169,7 +169,7 @@ with st.sidebar.expander("🎛️ Options du Modèle & Affichage", expanded=True
       ),
   )
 
-with st.sidebar.expander("🌊 Harmoniques LPPL", expanded=True):
+with st.sidebar.expander("🌊 Harmoniques LPPL", expanded=False):
   st.markdown("**Harmonic 1 (Macro Cycle)**")
   C1 = st.number_input(
       "Amplitude H1 (C1)",
