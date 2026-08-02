@@ -2530,7 +2530,7 @@ with st.expander("❓ Guide de Lecture - Simulateur Smart DCA"):
     * **DCA Classique (Fixe)** : Investit un montant fixe à intervalles réguliers (ex: chaque semaine ou chaque mois), sans tenir compte des conditions de marché.
     * **Smart DCA (Basé sur Power Law)** : Module dynamiquement le montant des achats en fonction du Z-Score de la Power Law :
       * **Sous-évaluation extrême ($Z < -1.0$)** : Multiplie l'achat de base par $2.0$ pour accumuler davantage à bas prix.
-      * **Surchauffe / Bulle ($Z > 2.0$)** : Suspend les achats ou réduit la mise de moitié selon l'option choisie pour éviter d'acheter au sommet.
+      * **Surchauffe / Bulle ($Z > 0$)** : Suspend les achats ou réduit la mise de moitié selon l'option choisie pour éviter d'acheter au sommet.
     """)
 
 col_dca_opt1, col_dca_opt2, col_dca_opt3 = st.columns(3)
@@ -2566,7 +2566,7 @@ with col_dca_opt4:
   )
 with col_dca_opt5:
   overheat_action = st.selectbox(
-      "Action en Zone de Bulle ($Z > 2.0$)",
+      "Action en Zone de Bulle ($Z > 0$)",
       ["Réduire de moitié (0.5x)", "Suspendre les achats (0x)"],
       index=1,
   )
@@ -2592,7 +2592,7 @@ for idx, row in dca_sim_df.iterrows():
   if "Smart" in dca_strategy:
     if z_pl < -1.0:
       current_invest = dca_base_amount * 2.0
-    elif z_pl > 2.0:
+    elif z_pl > 0:
       if "Suspendre" in overheat_action:
         current_invest = 0.0
       else:
@@ -2710,7 +2710,6 @@ else:
   st.warning(
       "Aucune donnée disponible à partir de la date de début sélectionnée."
   )
-
 # ==============================================================================
 # SECTION FINALE : SCHÉMA CONCEPTUEL (TAS DE SABLE)
 # ==============================================================================
