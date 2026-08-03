@@ -182,6 +182,11 @@ with st.sidebar.expander("🎛️ Options du Modèle & Affichage", expanded=Fals
           " calendaire (Date) et le logarithme du temps (ln(t))."
       ),
   )
+  show_angular_points = st.checkbox(
+      "Afficher Tops Angulaires (45°, 135°...)",
+      value=True,
+      help="❓ Permet d'afficher les tops angulaires.",
+  )
 
 with st.sidebar.expander(
     "⚡ Configuration Évolution Fraction d'Énergie", expanded=False
@@ -1125,6 +1130,11 @@ step_angle = np.pi / 4
 k_min = int(np.floor((omega * lnT_min_val) / step_angle))
 k_max = int(np.ceil((omega * lnT_max_val) / step_angle))
 
+# Initialisation des listes pour stocker les points rouges (tops angulaires)
+marker_x = []
+marker_y = []
+marker_text = []
+
 for k in range(k_min, k_max + 1):
   lnT_line = (k * step_angle) / omega
   angle_deg = int(round(np.rad2deg(k * step_angle)) % 360)
@@ -1153,6 +1163,25 @@ for k in range(k_min, k_max + 1):
     line_color = "rgba(255, 0, 0, 0.3)"
     line_width = 0.8
     line_dash = "dot"
+
+    # Calcul du prix uniquement si la case est cochée
+    if show_angular_points:
+      price_val = np.exp(
+          f_log_model(
+              np.array([lnT_line]),
+              A,
+              B,
+              C1,
+              omega,
+              phi1,
+              C2,
+              phi2,
+              use_energy=use_energy,
+          )[0]
+      )
+      marker_x.append(x_val)
+      marker_y.append(price_val)
+      marker_text.append(f"{angle_deg}°")
   else:
     is_major = (angle_deg % 180) == 0
     line_color = (
@@ -1192,6 +1221,24 @@ for k in range(k_min, k_max + 1):
         xanchor="center",
         yanchor="bottom",
     )
+
+# Ajout de la trace des points rouges conditionnée par la case à cocher
+if show_angular_points and marker_x:
+  fig.add_trace(
+      go.Scatter(
+          x=marker_x,
+          y=marker_y,
+          mode="markers+text",
+          name="Tops Angulaires (45°, 135°, 225°, 315°)",
+          text=marker_text,
+          textposition="top center",
+          marker=dict(color="#FF0000", size=8, symbol="circle"),
+          textfont=dict(size=9, color="#FF6B6B"),
+          showlegend=True,
+      ),
+      row=1,
+      col=1,
+  )
 
 fig.add_hline(
     y=pl_sigma_upper,
@@ -1303,7 +1350,6 @@ fig.update_layout(
         bgcolor="rgba(0,0,0,0.5)",
     ),
 )
-
 # ==============================================================================
 # 8. DASHBOARD & MÉTRIQUES COMPLÈTES
 # ==============================================================================
