@@ -183,9 +183,9 @@ with st.sidebar.expander("🎛️ Options du Modèle & Affichage", expanded=Fals
       ),
   )
   show_angular_points = st.checkbox(
-      "Afficher Tops Angulaires (45°, 135°...)",
+      "Afficher Points Angulaires Critiques (45°, 135°...)",
       value=True,
-      help="❓ Permet d'afficher les tops angulaires.",
+      help="❓ Permet d'afficher les points angulaires critiques.",
   )
 
 with st.sidebar.expander(
@@ -2952,3 +2952,5 @@ st.image(
         " Bitcoin – Inspiré des travaux de Didier Sornette"
     ),
 )
+
+
