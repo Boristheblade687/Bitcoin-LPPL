@@ -1234,7 +1234,7 @@ if show_angular_points and marker_x:
           x=marker_x,
           y=marker_y,
           mode="markers+text",
-          name="Points Angulaires Vritiques (45°, 135°, 225°, 315°)",
+          name="Points Angulaires Critiques (45°, 135°, 225°, 315°)",
           text=marker_text,
           textposition="top center",
           marker=dict(color="#FF0000", size=8, symbol="circle"),
