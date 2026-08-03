@@ -99,7 +99,7 @@ st.sidebar.markdown("---")
 horizon_years = st.sidebar.slider(
     "🔮 Horizon de Prévision (Années)",
     min_value=1,
-    max_value=10,
+    max_value=3,
     value=3,
     step=1,
     help=(
@@ -679,7 +679,7 @@ state_txt, state_color = get_market_state(ratio_percentile)
 
 
 # ==============================================================================
-# 6. FONCTIONS WALK-FORWARD
+# 6. FONCTIONS WALK-FORWARD (Avec Warm-Start Intégré)
 # ==============================================================================
 @st.cache_data
 def run_wf_analysis_fast(
@@ -754,6 +754,9 @@ def run_rolling_walk_forward(
   results = []
   n_samples = len(days)
 
+  # Initialisation du point de départ global pour la toute première fenêtre
+  current_guess = [-39.18, 5.845, 0.62, 8.635, -2.11, 0.267, -3.0]
+
   start_idx = 0
   while start_idx < n_samples:
     train_end_day = days[start_idx] + window_days
@@ -797,15 +800,19 @@ def run_rolling_walk_forward(
           (-np.pi, np.pi),
       ]
 
-      init_guess = [-39.18, 5.845, 0.62, 8.635, -2.11, 0.267, -3.0]
+      # WARM-START : Utilisation de current_guess issu de l'itération précédente
       res = minimize(
-          loss_func_local, init_guess, bounds=bounds, method="L-BFGS-B"
+          loss_func_local, current_guess, bounds=bounds, method="L-BFGS-B"
       )
 
       if res.success:
         opt_A, opt_B, opt_C1, opt_omega, opt_p1, opt_C2, opt_p2 = res.x
+        # Mise à jour de la référence pour le prochain pas de glissement
+        current_guess = res.x
       else:
-        opt_A, opt_B, opt_C1, opt_omega, opt_p1, opt_C2, opt_p2 = init_guess
+        opt_A, opt_B, opt_C1, opt_omega, opt_p1, opt_C2, opt_p2 = res.x if hasattr(res, "x") else current_guess
+        if hasattr(res, "x"):
+          current_guess = res.x
 
       test_days = days[train_end_idx:test_end_idx]
       test_lnT = np.log(test_days)
@@ -840,8 +847,6 @@ def run_rolling_walk_forward(
     start_idx += max(1, step_idx)
 
   return pd.DataFrame(results)
-
-
 # ==============================================================================
 # 7. PROJECTIONS & GRAPHIQUE PRINCIPAL
 # ==============================================================================
