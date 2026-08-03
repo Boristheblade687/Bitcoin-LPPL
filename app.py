@@ -1,5 +1,5 @@
-import json
 from datetime import timedelta
+import json
 import numpy as np
 import pandas as pd
 import plotly.figure_factory as ff
@@ -21,16 +21,27 @@ st.title("₿ Bitcoin PowerLaw + LPPL (2 Harmonics) - Advanced Analytics")
 
 # Initialisation des variables dans le Session State
 DEFAULT_PARAMS = {
-    "A": -38.35,
-    "B": 5.738,
-    "C1": 3.31,
-    "omega": 8.635,
-    "phi1": -2.08,
-    "C2": 0.63,
-    "phi2": -2.99,
+    "A": -38.02,
+    "B": 5.696,
+    "C1": 2.06,
+    "omega": 8.640,
+    "phi1": -2.14,
+    "C2": 1.02,
+    "phi2": -3.14,
 }
 
 for key, val in DEFAULT_PARAMS.items():
+  if key not in st.session_state:
+    st.session_state[key] = val
+
+# Paramètres par défaut pour la configuration de la fraction d'énergie
+ENERGY_PARAMS = {
+    "energy_decay_10": 3.15,
+    "energy_scale_macro": 1.73,
+    "energy_scale_micro": 0.6,
+}
+
+for key, val in ENERGY_PARAMS.items():
   if key not in st.session_state:
     st.session_state[key] = val
 
@@ -43,14 +54,12 @@ GENESIS_DATE = pd.to_datetime("2009-01-03")
 # ==============================================================================
 st.sidebar.header("⚙️ Paramètres du Modèle")
 
-# Avertissement légal
 st.sidebar.warning(
     "⚠️ **Avertissement :** Ce modèle est conçu exclusivement à des fins de"
     " recherche et de modélisation statistique à long terme. Il ne constitue"
     " en aucun cas un conseil en investissement."
 )
 
-# --- GESTION DES CONFIGURATIONS JSON (CHARGEMENT & SAUVEGARDE) ---
 st.sidebar.subheader("📁 Gestion de Configuration")
 
 uploaded_file = st.sidebar.file_uploader(
@@ -67,11 +76,16 @@ if uploaded_file is not None:
     for k_cfg, v_cfg in loaded_cfg.items():
       if k_cfg in DEFAULT_PARAMS:
         st.session_state[k_cfg] = float(v_cfg)
+      elif k_cfg in ENERGY_PARAMS:
+        st.session_state[k_cfg] = float(v_cfg)
     st.sidebar.success("Configuration chargée avec succès !")
   except Exception as e:
     st.sidebar.error(f"Erreur de lecture du JSON : {e}")
 
-config_dict = {k: st.session_state[k] for k in DEFAULT_PARAMS.keys()}
+config_dict = {
+    k: st.session_state[k]
+    for k in list(DEFAULT_PARAMS.keys()) + list(ENERGY_PARAMS.keys())
+}
 st.sidebar.download_button(
     "💾 Sauvegarder Config (JSON)",
     data=json.dumps(config_dict, indent=2),
@@ -166,6 +180,50 @@ with st.sidebar.expander("🎛️ Options du Modèle & Affichage", expanded=Fals
       help=(
           "❓ Permet de basculer l'axe X des graphiques entre le temps linéaire"
           " calendaire (Date) et le logarithme du temps (ln(t))."
+      ),
+  )
+
+with st.sidebar.expander(
+    "⚡ Configuration Évolution Fraction d'Énergie", expanded=False
+):
+  st.caption(
+      "Ajuste les paramètres dynamiques régissant l'évolution de la fraction"
+      " d'énergie entre les différents modes fréquentiels[cite: 1]."
+  )
+  energy_decay_10 = st.slider(
+      "Taux de Décroissance H1 ($f_{10}$)",
+      min_value=0.5,
+      max_value=5.0,
+      value=st.session_state["energy_decay_10"],
+      step=0.1,
+      key="input_energy_decay_10",
+      help=(
+          "❓ Contrôle la vitesse d'atténuation de la composante"
+          " exponentielle de $f_{10}$ au fil du temps."
+      ),
+  )
+  energy_scale_macro = st.slider(
+      "Poids Global Macro ($f_{0.5}, f_{1.0}$)",
+      min_value=0.2,
+      max_value=2.0,
+      value=st.session_state["energy_scale_macro"],
+      step=0.05,
+      key="input_energy_scale_macro",
+      help=(
+          "❓ Facteur multiplicatif appliqué aux fractions d'énergie"
+          " macro-cycliques."
+      ),
+  )
+  energy_scale_micro = st.slider(
+      "Poids Global Micro ($f_{2.0}, f_{3.0}, f_{4.0}$)",
+      min_value=0.2,
+      max_value=2.0,
+      value=st.session_state["energy_scale_micro"],
+      step=0.05,
+      key="input_energy_scale_micro",
+      help=(
+          "❓ Facteur multiplicatif appliqué aux fractions d'énergie"
+          " micro-cycliques."
       ),
   )
 
@@ -303,38 +361,50 @@ if df.empty:
 # ==============================================================================
 # 3. FONCTIONS MATHÉMATIQUES DU MODÈLE & FRACTIONS D'ÉNERGIE
 # ==============================================================================
-def compute_energy_fractions(lnT):
-  """Calcule les fractions d'énergie normalisées pour chaque mode fréquentiel."""
+def f_trend(lnT, a_val, b_val):
+  """Calcule la tendance fondamentale Power Law[cite: 3]."""
+  return a_val + b_val * lnT
+
+
+def compute_energy_fractions(
+    lnT, decay_10=None, scale_macro=None, scale_micro=None
+):
+  """Calcule les fractions d'énergie réactives (support optimisation & UI)[cite: 1, 2]."""
   days = np.exp(lnT)
   years = 2009.0082 + days / 365.25
   t_norm = (years - 2010.0) / (2026.0 - 2010.0)
 
-  f_05 = 0.02 + 0.01 * np.sin(t_norm * np.pi)
-  f_10 = 0.35 * np.exp(-2.5 * t_norm) + 0.05
-  f_20 = 0.15 + 0.12 * np.sin(t_norm * np.pi * 1.5) * np.exp(
-      -((t_norm - 0.3) ** 2) / 0.1
+  d_10 = (
+      decay_10
+      if decay_10 is not None
+      else st.session_state.get("energy_decay_10", 2.5)
   )
-  f_20 = np.clip(f_20, 0.05, 0.30)
+  s_macro = (
+      scale_macro
+      if scale_macro is not None
+      else st.session_state.get("energy_scale_macro", 1.0)
+  )
+  s_micro = (
+      scale_micro
+      if scale_micro is not None
+      else st.session_state.get("energy_scale_micro", 1.0)
+  )
+
+  f_05 = 0.02 + 0.01 * np.sin(t_norm * np.pi)
+  f_10 = 0.35 * np.exp(-d_10 * t_norm) + 0.05
+  f_20 = (
+      0.15
+      + 0.12
+      * np.sin(t_norm * np.pi * 1.5)
+      * np.exp(-((t_norm - 0.3) ** 2) / 0.1)
+  )
   f_30 = 0.08 + 0.12 * (1.0 - np.exp(-3.0 * t_norm))
   f_40 = 0.06 + 0.02 * np.sin(t_norm * np.pi * 2)
 
-  twist_raw = f_05 + f_10 + f_20 + f_30 + f_40
-  f_05_s = (f_05 / twist_raw) * 0.61
-  f_10_s = (f_10 / twist_raw) * 0.61
-  f_20_s = (f_20 / twist_raw) * 0.61
-  f_30_s = (f_30 / twist_raw) * 0.61
-  f_40_s = (f_40 / twist_raw) * 0.61
+  e_h1 = (f_05 + f_10) * s_macro
+  e_h2 = (f_20 + f_30 + f_40) * s_micro
 
-  # Fraction H1 (Macro) = 0.5w + 1w
-  e_h1 = f_05_s + f_10_s
-  # Fraction H2 (Micro) = 2w + 3w + 4w
-  e_h2 = f_20_s + f_30_s + f_40_s
-
-  return e_h1, e_h2, f_05_s, f_10_s, f_20_s, f_30_s, f_40_s
-
-
-def f_trend(lnT, a_val, b_val):
-  return a_val + b_val * lnT
+  return e_h1, e_h2, f_05, f_10, f_20, f_30, f_40
 
 
 def f_log_model(
@@ -347,16 +417,23 @@ def f_log_model(
     c2_val,
     p2_val,
     use_energy=True,
+    decay_10=None,
+    scale_macro=None,
+    scale_micro=None,
 ):
+  """Calcule le modèle LPPL global avec ou sans modulation énergétique[cite: 2, 3]."""
   trend_val = f_trend(lnT, a_val, b_val)
 
   if use_energy:
-    # Récupération de l'évolution dynamique des fractions d'énergie
-    e_h1, e_h2, _, _, _, _, _ = compute_energy_fractions(lnT)
+    e_h1, e_h2, _, _, _, _, _ = compute_energy_fractions(
+        lnT,
+        decay_10=decay_10,
+        scale_macro=scale_macro,
+        scale_micro=scale_micro,
+    )
     h1 = (c1_val * e_h1) * np.cos(omega_val * lnT + p1_val)
     h2 = (c2_val * e_h2) * np.cos(4.0 * omega_val * lnT + p2_val)
   else:
-    # Modèle LPPL classique (amplitudes fixes C1 et C2)
     h1 = c1_val * np.cos(omega_val * lnT + p1_val)
     h2 = c2_val * np.cos(4.0 * omega_val * lnT + p2_val)
 
@@ -398,69 +475,122 @@ def calculate_bubble_hazard_index(df_data, window=180):
 st.sidebar.markdown("---")
 st.sidebar.subheader("🎯 Calibrage Automatique")
 
+
 def perform_auto_calibration(current_use_energy):
-    lnT_vec = df["lnT"].to_numpy()
-    act_log_vec = df["actualLog"].to_numpy()
-    
-    def loss_func_fast(params):
-        p_A, p_B, p_C1, p_omega, p_p1, p_C2, p_p2 = params
-        preds = f_log_model(lnT_vec, p_A, p_B, p_C1, p_omega, p_p1, p_C2, p_p2, use_energy=current_use_energy)
-        return np.mean((act_log_vec - preds) ** 2)
+  lnT_vec = df["lnT"].to_numpy()
+  act_log_vec = df["actualLog"].to_numpy()
 
-    bounds = [
-        (-42.0, -34.0),
-        (5.5, 6.0),
-        (0.0, 4.0),
-        (8.5, 9.0),
-        (-2.2, -2.05),
-        (0.0, 2.0),
-        (-np.pi, np.pi)
-    ]
-
-    res = differential_evolution(
-        loss_func_fast,
-        bounds=bounds,
-        strategy='best1bin',
-        maxiter=250,
-        popsize=25,
-        polish=True,
-        seed=42
+  def loss_func_fast(params):
+    (
+        p_A,
+        p_B,
+        p_C1,
+        p_omega,
+        p_p1,
+        p_C2,
+        p_p2,
+        p_decay,
+        p_s_macro,
+        p_s_micro,
+    ) = params
+    preds = f_log_model(
+        lnT_vec,
+        p_A,
+        p_B,
+        p_C1,
+        p_omega,
+        p_p1,
+        p_C2,
+        p_p2,
+        use_energy=current_use_energy,
+        decay_10=p_decay,
+        scale_macro=p_s_macro,
+        scale_micro=p_s_micro,
     )
+    return np.mean((act_log_vec - preds) ** 2)
 
-    if res.success:
-        params_keys = ["A", "B", "C1", "omega", "phi1", "C2", "phi2"]
-        for i, k in enumerate(params_keys):
-            st.session_state[k] = float(res.x[i])
-            st.session_state.pop(f"input_{k}", None)
-            
-        st.session_state["opt_msg"] = (
-            f"A: {res.x[0]:.2f} | B: {res.x[1]:.3f}\n"
-            f"C1: {res.x[2]:.2f} | ω: {res.x[3]:.3f} | φ1: {res.x[4]:.2f}\n"
-            f"C2: {res.x[5]:.2f} | φ2: {res.x[6]:.2f}"
-        )
-        return True
-    return False
+  bounds = [
+      (-45.0, -25.0),  # A
+      (4.5, 6.8),  # B
+      (0.0, 3.0),  # C1
+      (8.0, 9.0),  # omega
+      (-np.pi, np.pi),  # phi1
+      (0.0, 2.0),  # C2
+      (-np.pi, np.pi),  # phi2
+      (0.5, 5.0),  # energy_decay_10
+      (0.2, 2.0),  # energy_scale_macro
+      (0.2, 2.0),  # energy_scale_micro
+  ]
 
-# Détection automatique du changement d'état de la case 'use_energy'
+  res = differential_evolution(
+      loss_func_fast,
+      bounds=bounds,
+      strategy="best1bin",
+      maxiter=300,
+      popsize=25,
+      polish=True,
+      seed=42,
+  )
+
+  if res.success:
+    params_keys = [
+        "A",
+        "B",
+        "C1",
+        "omega",
+        "phi1",
+        "C2",
+        "phi2",
+        "energy_decay_10",
+        "energy_scale_macro",
+        "energy_scale_micro",
+    ]
+    for i, k in enumerate(params_keys):
+      st.session_state[k] = float(res.x[i])
+      st.session_state.pop(f"input_{k}", None)
+
+    # Affichage complet et structuré de TOUS les paramètres optimisés dans la fenêtre bleue
+    st.session_state["opt_msg"] = (
+        f"**Tendance :** A={res.x[0]:.2f} | B={res.x[1]:.3f}\n\n"
+        f"**Harmoniques :** C1={res.x[2]:.2f} | ω={res.x[3]:.3f} |"
+        f" φ1={res.x[4]:.2f}\n\n"
+        f"**Harmoniques 2 :** C2={res.x[5]:.2f} | φ2={res.x[6]:.2f}\n\n"
+        f"**Énergie :** Decay={res.x[7]:.2f} | Macro={res.x[8]:.2f} |"
+        f" Micro={res.x[9]:.2f}"
+    )
+    return True
+  return False
+
+
 if "prev_use_energy" not in st.session_state:
-    st.session_state["prev_use_energy"] = use_energy
+  st.session_state["prev_use_energy"] = use_energy
 
 if use_energy != st.session_state["prev_use_energy"]:
-    st.session_state["prev_use_energy"] = use_energy
-    with st.spinner("🔄 Recalibrage automatique suite au changement du mode d'énergie..."):
-        if perform_auto_calibration(use_energy):
-            st.rerun()
+  st.session_state["prev_use_energy"] = use_energy
+  with st.spinner(
+      "🔄 Recalibrage automatique suite au changement du mode d'énergie..."
+  ):
+    if perform_auto_calibration(use_energy):
+      st.rerun()
 
-if st.sidebar.button("🤖 Ajuster les paramètres au dataset", help="❓ Lance l'optimisation globale (Differential Evolution) pour estimer les paramètres de manière robuste."):
-    with st.spinner("Optimisation globale en cours (Recherche globale + Polish)..."):
-        if perform_auto_calibration(use_energy):
-            st.rerun()
-        else:
-            st.sidebar.error("L'optimisation globale a échoué.")
+if st.sidebar.button(
+    "🤖 Ajuster les paramètres au dataset",
+    help=(
+        "❓ Lance l'optimisation globale (Differential Evolution) pour estimer"
+        " les 10 paramètres de manière robuste."
+    ),
+):
+  with st.spinner(
+      "Optimisation globale en cours (Recherche globale + Polish)..."
+  ):
+    if perform_auto_calibration(use_energy):
+      st.rerun()
+    else:
+      st.sidebar.error("L'optimisation globale a échoué.")
 
 if "opt_msg" in st.session_state:
-    st.sidebar.success("Ajustement réussi !")
-    st.sidebar.info(st.session_state["opt_msg"])
+  st.sidebar.success("Ajustement réussi !")
+  st.sidebar.info(st.session_state["opt_msg"])
 
 # ==============================================================================
 # 5. CALCULS GLOBAUX, POWER LAW, RÉSIDUS & INDICE DE RISQUE DE RUPTURE
@@ -1923,19 +2053,19 @@ with col_right:
       )
     with col_p2:
       phase_10 = st.number_input(
-          "Phase 1.0ω", value=float(-2.11), format="%.4f", key="phase_10_val"
+          "Phase 1.0ω", value=float(-2.1), format="%.4f", key="phase_10_val"
       )
     with col_p3:
       phase_20 = st.number_input(
-          "Phase 2.0w", value=float(-1.24), format="%.4f", key="phase_20_val"
+          "Phase 2.0w", value=float(-0.5), format="%.4f", key="phase_20_val"
       )
     with col_p4:
       phase_30 = st.number_input(
-          "Phase 3.0ω", value=float(1.93), format="%.4f", key="phase_30_val"
+          "Phase 3.0ω", value=float(-1.0), format="%.4f", key="phase_30_val"
       )
     with col_p5:
       phase_40 = st.number_input(
-          "Phase 4.0ω", value=float(3.14), format="%.4f", key="phase_40_val"
+          "Phase 4.0ω", value=float(-2.7), format="%.4f", key="phase_40_val"
       )
 
   wave_05 = (C1 * 0.4) * f_05_s * np.cos(0.5 * omega * lnT_full + phase_05)
@@ -2027,6 +2157,8 @@ with col_right:
   )
   st.plotly_chart(fig_harmonics, use_container_width=True)
 
+
+
 # ==============================================================================
 # SECTION : COURBE DE PREVISION OOS (HORIZON PERSONNALISABLE)
 # ==============================================================================
@@ -2049,13 +2181,6 @@ st.subheader(
     f"📈 Comparaison de la Courbe de Prévision Out-Of-Sample"
     f" ({current_label}) vs Prix Réel"
 )
-
-with st.expander("❓ Guide de Lecture - Courbe de Prévision Out-Of-Sample"):
-  st.markdown("""
-    * **Prix BTC Réel (Gris)** : L'historique des prix observés de Bitcoin.
-    * **Courbe OOS (Bleu pointillé)** : Prévision réalisée par le modèle en se projetant hors de l'échantillon d'apprentissage pour l'horizon choisi.
-    * **Utilité** : Permet d'évaluer visuellement la robustesse et la capacité prédictive du modèle sur des données qu'il n'a pas "vues" lors de son entraînement.
-    """)
 
 selected_oos_chart_label = st.selectbox(
     "Sélectionner l'horizon OOS pour la comparaison de prévision",
@@ -2116,17 +2241,18 @@ fig_oos_parallel.update_layout(
 )
 st.plotly_chart(fig_oos_parallel, use_container_width=True)
 
+with st.expander("❓ Guide de Lecture - Comparaison de la Courbe OOS"):
+  st.markdown("""
+      * **Prix BTC Réel (Gris)** : Historique des cours de clôture du Bitcoin sur la période complète.
+      * **OOS (Bleu Clair)** : Courbe de prévision générée à partir des paramètres historiques ajustés, évaluée en aveugle (Out-Of-Sample) sur l'horizon sélectionné.
+      * **Utilité** : Permet de visualiser visuellement la robustesse prédictive du modèle en comparant la trajectoire anticipée aux mouvements réels du marché.
+      """)
+
 # ==============================================================================
 # 9. ROLLING WALK-FORWARD & STABILITÉ TEMPORELLE
 # ==============================================================================
 st.markdown("---")
 st.subheader("🔄 Stabilité Temporelle (Rolling Walk-Forward Analysis)")
-
-with st.expander("❓ Guide de Lecture - Stabilité Temporelle (Walk-Forward)"):
-  st.markdown("""
-    * **Principe** : Évalue comment les performances du modèle évoluent dynamiquement en le ré-entraînant et en le testant par fenêtres glissantes.
-    * **RMSE / MAE OOS (%)** : Mesurent l'erreur de prévision hors échantillon. Une courbe stable ou orientée à la baisse témoigne d'un modèle robuste dans le temps.
-    """)
 
 col_rwf_params, col_rwf_chart = st.columns([1, 3])
 
@@ -2193,11 +2319,17 @@ with col_rwf_chart:
         xaxis_title="Date d'Évaluation",
     )
     st.plotly_chart(fig_rwf, use_container_width=True)
+    with st.expander("❓ Guide de Lecture - Stabilité Temporelle"):
+      st.markdown("""
+          * **RMSE / MAE OOS (%)** : Erreur de prédiction hors échantillon calculée de manière glissante au fil du temps.
+          * **Stabilité du Modèle** : Des pics d'erreur soudains signalent des ruptures de régime macroéconomique ou des bulles non anticipées, tandis qu'une courbe stable valide la constance de la précision du modèle.
+          """)
   else:
     st.info(
         "Historique insuffisant pour calculer les fenêtres glissantes"
         " sélectionnées."
     )
+
 
 # ==============================================================================
 # SECTION : POURCENTAGE D'ERREUR RMS / OOS PAR NIVEAU DE SIGMA
@@ -2454,20 +2586,11 @@ with col_dist1:
     st.warning("Données OOS insuffisantes pour afficher la distribution.")
 
 
+
 # ==============================================================================
 # 10. TABLEAUX DE PERFORMANCE FIXE & EXPORT CSV
 # ==============================================================================
 st.markdown("---")
-
-with st.expander(
-    "❓ Guide de Lecture - Performance Walk-Forward & Prévisions Futures"
-):
-  st.markdown("""
-    * **Directional Accuracy (%)** : Pourcentage de fois où le modèle a correctement anticipé la direction du mouvement (hausse vs baisse).
-    * **Alpha Edge (%)** : Surperformance par rapport à une stratégie de référence passive.
-    * **Cône de Prévision ($\pm 1\sigma$)** : Fourchette d'incertitude encadrant la cible LPPL en fonction de la volatilité passée.
-    """)
-
 col_wf, col_proj = st.columns(2)
 
 with col_wf:
@@ -2504,6 +2627,12 @@ with col_wf:
     })
   df_wf_table = pd.DataFrame(wf_data)
   st.dataframe(df_wf_table, hide_index=True, use_container_width=True)
+  with st.expander("❓ Guide de Lecture - Performance Walk-Forward"):
+    st.markdown("""
+        * **Directional Accuracy** : Pourcentage de prédictions correctes sur la direction du mouvement du prix (hausse vs baisse).
+        * **Alpha Edge** : Surperformance de la précision directionnelle par rapport au biais haussier global du marché sur l'horizon considéré.
+        * **OOS RMSE / MAE / R²** : Mesures globales de la qualité des prévisions hors échantillon pour chaque horizon temporel.
+        """)
 
 with col_proj:
   st.subheader("🔮 Prévisions Futures & Export")
@@ -2553,6 +2682,12 @@ with col_proj:
           " format CSV."
       ),
   )
+  with st.expander("❓ Guide de Lecture - Prévisions Futures & Cône"):
+    st.markdown("""
+        * **LPPL Target** : Cible de prix centrale estimée par le modèle pour chaque échéance future (1 à N années).
+        * **Cône de Prévision (±1σ)** : Intervalle de confiance probabiliste intégrant l'incertitude historique et la propagation des erreurs d'estimation.
+        """)
+
 
 
 # ==============================================================================
