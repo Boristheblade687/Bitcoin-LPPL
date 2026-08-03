@@ -1,4 +1,3 @@
-# app - Vlit 2 harmo avec energy observable (variance multi-échelle)
 from datetime import timedelta
 import json
 import numpy as np
@@ -14,11 +13,11 @@ import streamlit as st
 # CONFIGURATION DE LA PAGE STREAMLIT
 # ==============================================================================
 st.set_page_config(
-    page_title="Bitcoin PowerLaw + LPPL (Observable Energy)",
+    page_title="Bitcoin PowerLaw + LPPL 2 Harmonics Advanced",
     layout="wide",
     page_icon="₿",
 )
-st.title("₿ Bitcoin PowerLaw + LPPL - Energy Observable (Multi-Échelle)")
+st.title("₿ Bitcoin PowerLaw + LPPL (2 Harmonics) - Advanced Analytics")
 
 # Initialisation des variables dans le Session State
 DEFAULT_PARAMS = {
@@ -35,10 +34,11 @@ for key, val in DEFAULT_PARAMS.items():
   if key not in st.session_state:
     st.session_state[key] = val
 
-# Paramètres par défaut pour la configuration de l'énergie observable
+# Paramètres par défaut pour la configuration de la fraction d'énergie
 ENERGY_PARAMS = {
-    "window_micro": 90,
-    "window_macro": 730,
+    "energy_decay_10": 3.15,
+    "energy_scale_macro": 1.73,
+    "energy_scale_micro": 0.6,
 }
 
 for key, val in ENERGY_PARAMS.items():
@@ -56,7 +56,8 @@ st.sidebar.header("⚙️ Paramètres du Modèle")
 
 st.sidebar.warning(
     "⚠️ **Avertissement :** Ce modèle est conçu exclusivement à des fins de"
-    " recherche et de modélisation statistique à long terme."
+    " recherche et de modélisation statistique à long terme. Il ne constitue"
+    " en aucun cas un conseil en investissement."
 )
 
 st.sidebar.subheader("📁 Gestion de Configuration")
@@ -64,7 +65,10 @@ st.sidebar.subheader("📁 Gestion de Configuration")
 uploaded_file = st.sidebar.file_uploader(
     "Charger Config (JSON)",
     type=["json"],
-    help="Restaurez une configuration de paramètres enregistrée.",
+    help=(
+        "❓ Restaurez une configuration de paramètres précédemment sauvegardée"
+        " au format JSON."
+    ),
 )
 if uploaded_file is not None:
   try:
@@ -73,7 +77,7 @@ if uploaded_file is not None:
       if k_cfg in DEFAULT_PARAMS:
         st.session_state[k_cfg] = float(v_cfg)
       elif k_cfg in ENERGY_PARAMS:
-        st.session_state[k_cfg] = int(v_cfg)
+        st.session_state[k_cfg] = float(v_cfg)
     st.sidebar.success("Configuration chargée avec succès !")
   except Exception as e:
     st.sidebar.error(f"Erreur de lecture du JSON : {e}")
@@ -85,8 +89,9 @@ config_dict = {
 st.sidebar.download_button(
     "💾 Sauvegarder Config (JSON)",
     data=json.dumps(config_dict, indent=2),
-    file_name="lppl_observable_params.json",
+    file_name="lppl_params.json",
     mime="application/json",
+    help="❓ Exporte vos paramètres actuels sous forme de fichier JSON.",
 )
 
 st.sidebar.markdown("---")
@@ -97,6 +102,10 @@ horizon_years = st.sidebar.slider(
     max_value=10,
     value=3,
     step=1,
+    help=(
+        "❓ Définit le nombre d'années dans le futur sur lesquelles étendre"
+        " les courbes de prévision LPPL et Power Law."
+    ),
 )
 
 st.sidebar.markdown("📊 **Bandes Power Law (Écart-type σ)**")
@@ -106,85 +115,159 @@ pl_sigma = st.sidebar.slider(
     max_value=4.0,
     value=1.6,
     step=0.1,
+    help=(
+        "❓ Multiplicateur d'écart-type (σ) appliqué aux résidus pour tracer"
+        " les bandes supérieure et inférieure Power Law."
+    ),
 )
 pl_sigma_upper = pl_sigma
 pl_sigma_lower = pl_sigma
 
 with st.sidebar.expander("📌 Power Law (Tendance Fondamentale)", expanded=False):
+  st.caption(
+      "Ajuste la tendance logarithmique fondamentale du prix (Prix = exp(A +"
+      " B * ln(t)))."
+  )
   A = st.number_input(
       "A (Ordonnée à l'origine)",
       value=st.session_state["A"],
       step=0.01,
       key="input_A",
+      help=(
+          "❓ L'intercepte logarithmique de la loi de puissance. Fixe le niveau"
+          " de départ à t=1."
+      ),
   )
   B = st.number_input(
       "B (Pente / Exposant)",
       value=st.session_state["B"],
       step=0.001,
       key="input_B",
+      help=(
+          "❓ La pente de la loi de puissance (exposant de croissance dans le"
+          " temps)."
+      ),
   )
 
 with st.sidebar.expander("🎛️ Options du Modèle & Affichage", expanded=False):
-  show_trend = st.checkbox("Afficher la Tendance (Power Law)", value=True)
-  show_lppl = st.checkbox("Afficher la Courbe LPPL", value=True)
+  show_trend = st.checkbox(
+      "Afficher la Tendance (Power Law)",
+      value=True,
+      help=(
+          "❓ Affiche la ligne de tendance fondamentale Power Law ainsi que son"
+          " canal supérieur et inférieur."
+      ),
+  )
+  show_lppl = st.checkbox(
+      "Afficher la Courbe LPPL",
+      value=True,
+      help=(
+          "❓ Affiche la courbe modèle LPPL ajustée (avec oscillations) et ses"
+          " prévisions futures."
+      ),
+  )
   use_energy = st.checkbox(
-      "⚡ Appliquer la Fraction d'Énergie Observable", value=True
+      "⚡ Appliquer la Fraction d'Énergie au Modèle Principal",
+      value=True,
+      help=(
+          "❓ Si décoché, le modèle principal devient le modèle LPPL classique"
+          " à amplitudes fixes."
+      ),
   )
   log_time_axis = st.checkbox(
-      "Échelle de Temps Logarithmique (ln(t))", value=True
+      "Échelle de Temps Logarithmique (ln(t) sur l'Axe X)",
+      value=True,
+      help=(
+          "❓ Permet de basculer l'axe X des graphiques entre le temps linéaire"
+          " calendaire (Date) et le logarithme du temps (ln(t))."
+      ),
   )
 
 with st.sidebar.expander(
-    "⚡ Configuration Énergie Observable (Multi-Échelle)", expanded=False
+    "⚡ Configuration Évolution Fraction d'Énergie", expanded=False
 ):
   st.caption(
-      "Ajuste les fenêtres d'évaluation de la variance des résidus pour piloter"
-      " l'énergie des harmoniques de manière objective[cite: 1]."
+      "Ajuste les paramètres dynamiques régissant l'évolution de la fraction"
+      " d'énergie entre les différents modes fréquentiels[cite: 1]."
   )
-  window_micro = st.slider(
-      "Fenêtre Micro-Cycles (Jours)",
-      min_value=30,
-      max_value=180,
-      value=st.session_state["window_micro"],
-      step=10,
-      key="input_window_micro",
+  energy_decay_10 = st.slider(
+      "Taux de Décroissance H1 ($f_{10}$)",
+      min_value=0.5,
+      max_value=5.0,
+      value=st.session_state["energy_decay_10"],
+      step=0.1,
+      key="input_energy_decay_10",
+      help=(
+          "❓ Contrôle la vitesse d'atténuation de la composante"
+          " exponentielle de $f_{10}$ au fil du temps."
+      ),
   )
-  window_macro = st.slider(
-      "Fenêtre Macro-Cycles (Jours)",
-      min_value=365,
-      max_value=1460,
-      value=st.session_state["window_macro"],
-      step=30,
-      key="input_window_macro",
+  energy_scale_macro = st.slider(
+      "Poids Global Macro ($f_{0.5}, f_{1.0}$)",
+      min_value=0.2,
+      max_value=2.0,
+      value=st.session_state["energy_scale_macro"],
+      step=0.05,
+      key="input_energy_scale_macro",
+      help=(
+          "❓ Facteur multiplicatif appliqué aux fractions d'énergie"
+          " macro-cycliques."
+      ),
+  )
+  energy_scale_micro = st.slider(
+      "Poids Global Micro ($f_{2.0}, f_{3.0}, f_{4.0}$)",
+      min_value=0.2,
+      max_value=2.0,
+      value=st.session_state["energy_scale_micro"],
+      step=0.05,
+      key="input_energy_scale_micro",
+      help=(
+          "❓ Facteur multiplicatif appliqué aux fractions d'énergie"
+          " micro-cycliques."
+      ),
   )
 
 with st.sidebar.expander("🌊 Harmoniques LPPL", expanded=False):
   st.markdown("**Harmonic 1 (Macro Cycle)**")
   C1 = st.number_input(
-      "Amplitude H1 (C1)", value=st.session_state["C1"], step=0.01, key="input_C1"
+      "Amplitude H1 (C1)",
+      value=st.session_state["C1"],
+      step=0.01,
+      key="input_C1",
+      help="❓ Amplitude de la première oscillation log-périodique majeure.",
   )
   omega = st.number_input(
       "Omega (ω) - Fréquence",
       value=st.session_state["omega"],
       step=0.001,
       key="input_omega",
+      help=(
+          "❓ Fréquence angulaire log-périodique. Détermine la vitesse à"
+          " laquelle les cycles se compressent au fil du temps."
+      ),
   )
   phi1 = st.number_input(
       "Phase H1 (φ1)",
       value=st.session_state["phi1"],
       step=0.01,
       key="input_phi1",
+      help="❓ Décalage temporel de la première onde harmonique.",
   )
 
   st.markdown("**Harmonic 2 (Micro Cycle - 4ω)**")
   C2 = st.number_input(
-      "Amplitude H2 (C2)", value=st.session_state["C2"], step=0.01, key="input_C2"
+      "Amplitude H2 (C2)",
+      value=st.session_state["C2"],
+      step=0.01,
+      key="input_C2",
+      help="❓ Amplitude des oscillations secondaires (sous-cycles).",
   )
   phi2 = st.number_input(
       "Phase H2 (φ2)",
       value=st.session_state["phi2"],
       step=0.01,
       key="input_phi2",
+      help="❓ Décalage temporel de la seconde onde harmonique.",
   )
 
 
@@ -251,7 +334,14 @@ min_date = raw_df["Date"].min().to_pydatetime()
 max_date = raw_df["Date"].max().to_pydatetime()
 
 selected_dates = st.sidebar.date_input(
-    "Plage de dates d'analyse", value=(min_date, max_date)
+    "Plage de dates d'analyse",
+    value=(min_date, max_date),
+    min_value=min_date,
+    max_value=max_date,
+    help=(
+        "❓ Restreint les données sur lesquelles le modèle est calibré et"
+        " évalué."
+    ),
 )
 
 if len(selected_dates) == 2:
@@ -269,63 +359,52 @@ if df.empty:
 
 
 # ==============================================================================
-# 3. FONCTIONS MATHÉMATIQUES & FRACTION D'ÉNERGIE OBSERVABLE (MULTI-ÉCHELLE)
+# 3. FONCTIONS MATHÉMATIQUES DU MODÈLE & FRACTIONS D'ÉNERGIE
 # ==============================================================================
 def f_trend(lnT, a_val, b_val):
-  """Calcule la tendance fondamentale Power Law."""
+  """Calcule la tendance fondamentale Power Law[cite: 3]."""
   return a_val + b_val * lnT
 
 
-def compute_energy_fractions(lnT, a_val, b_val):
-  """Calcule les fractions d'énergie objectivement à partir de la variance
+def compute_energy_fractions(
+    lnT, decay_10=None, scale_macro=None, scale_micro=None
+):
+  """Calcule les fractions d'énergie réactives (support optimisation & UI)[cite: 1, 2]."""
+  days = np.exp(lnT)
+  years = 2009.0082 + days / 365.25
+  t_norm = (years - 2010.0) / (2026.0 - 2010.0)
 
-  multi-échelle des résidus Power Law (Grandeur directement observable)[cite: 1].
-  """
-  global df
-  if df is not None and "actualLog" in df.columns:
-    hist_lnT = df["lnT"].values
-    hist_res = df["actualLog"].values - (a_val + b_val * hist_lnT)
+  d_10 = (
+      decay_10
+      if decay_10 is not None
+      else st.session_state.get("energy_decay_10", 2.5)
+  )
+  s_macro = (
+      scale_macro
+      if scale_macro is not None
+      else st.session_state.get("energy_scale_macro", 1.0)
+  )
+  s_micro = (
+      scale_micro
+      if scale_micro is not None
+      else st.session_state.get("energy_scale_micro", 1.0)
+  )
 
-    s_res = pd.Series(hist_res, index=df["Date"])
+  f_05 = 0.02 + 0.01 * np.sin(t_norm * np.pi)
+  f_10 = 0.35 * np.exp(-d_10 * t_norm) + 0.05
+  f_20 = (
+      0.15
+      + 0.12
+      * np.sin(t_norm * np.pi * 1.5)
+      * np.exp(-((t_norm - 0.3) ** 2) / 0.1)
+  )
+  f_30 = 0.08 + 0.12 * (1.0 - np.exp(-3.0 * t_norm))
+  f_40 = 0.06 + 0.02 * np.sin(t_norm * np.pi * 2)
 
-    w_micro = st.session_state.get("window_micro", 90)
-    w_macro = st.session_state.get("window_macro", 730)
+  e_h1 = (f_05 + f_10) * s_macro
+  e_h2 = (f_20 + f_30 + f_40) * s_micro
 
-    var_micro = (
-        s_res.rolling(window=w_micro, min_periods=10).var().bfill().ffill()
-    )
-    var_macro = (
-        s_res.rolling(window=w_macro, min_periods=30).var().bfill().ffill()
-    )
-
-    total_var = var_micro + var_macro
-    total_var = np.where(total_var == 0, 1e-6, total_var)
-
-    e_h1_hist = np.clip(var_macro / total_var, 0.05, 0.95)
-    e_h2_hist = np.clip(var_micro / total_var, 0.05, 0.95)
-
-    days_input = np.exp(lnT)
-    hist_days = np.exp(hist_lnT)
-
-    e_h1 = np.interp(
-        days_input,
-        hist_days,
-        e_h1_hist,
-        left=e_h1_hist.iloc[0],
-        right=e_h1_hist.iloc[-1],
-    )
-    e_h2 = np.interp(
-        days_input,
-        hist_days,
-        e_h2_hist,
-        left=e_h2_hist.iloc[0],
-        right=e_h2_hist.iloc[-1],
-    )
-  else:
-    e_h1 = np.full_like(lnT, 0.5)
-    e_h2 = np.full_like(lnT, 0.5)
-
-  return e_h1, e_h2
+  return e_h1, e_h2, f_05, f_10, f_20, f_30, f_40
 
 
 def f_log_model(
@@ -338,12 +417,20 @@ def f_log_model(
     c2_val,
     p2_val,
     use_energy=True,
+    decay_10=None,
+    scale_macro=None,
+    scale_micro=None,
 ):
-  """Calcule le modèle LPPL global avec modulation par énergie observable."""
+  """Calcule le modèle LPPL global avec ou sans modulation énergétique[cite: 2, 3]."""
   trend_val = f_trend(lnT, a_val, b_val)
 
   if use_energy:
-    e_h1, e_h2 = compute_energy_fractions(lnT, a_val, b_val)
+    e_h1, e_h2, _, _, _, _, _ = compute_energy_fractions(
+        lnT,
+        decay_10=decay_10,
+        scale_macro=scale_macro,
+        scale_micro=scale_micro,
+    )
     h1 = (c1_val * e_h1) * np.cos(omega_val * lnT + p1_val)
     h2 = (c2_val * e_h2) * np.cos(4.0 * omega_val * lnT + p2_val)
   else:
@@ -383,7 +470,7 @@ def calculate_bubble_hazard_index(df_data, window=180):
 
 
 # ==============================================================================
-# 4. OPTIMISATION GLOBALE AUTOMATIQUE
+# 4. OPTIMISATION GLOBALE AUTOMATIQUE & DÉTECTION DE CHANGEMENT D'ÉTAT
 # ==============================================================================
 st.sidebar.markdown("---")
 st.sidebar.subheader("🎯 Calibrage Automatique")
@@ -394,7 +481,18 @@ def perform_auto_calibration(current_use_energy):
   act_log_vec = df["actualLog"].to_numpy()
 
   def loss_func_fast(params):
-    p_A, p_B, p_C1, p_omega, p_p1, p_C2, p_p2 = params
+    (
+        p_A,
+        p_B,
+        p_C1,
+        p_omega,
+        p_p1,
+        p_C2,
+        p_p2,
+        p_decay,
+        p_s_macro,
+        p_s_micro,
+    ) = params
     preds = f_log_model(
         lnT_vec,
         p_A,
@@ -405,6 +503,9 @@ def perform_auto_calibration(current_use_energy):
         p_C2,
         p_p2,
         use_energy=current_use_energy,
+        decay_10=p_decay,
+        scale_macro=p_s_macro,
+        scale_micro=p_s_micro,
     )
     return np.mean((act_log_vec - preds) ** 2)
 
@@ -416,40 +517,72 @@ def perform_auto_calibration(current_use_energy):
       (-np.pi, np.pi),  # phi1
       (0.0, 2.0),  # C2
       (-np.pi, np.pi),  # phi2
+      (0.5, 5.0),  # energy_decay_10
+      (0.2, 2.0),  # energy_scale_macro
+      (0.2, 2.0),  # energy_scale_micro
   ]
 
   res = differential_evolution(
       loss_func_fast,
       bounds=bounds,
       strategy="best1bin",
-      maxiter=200,
-      popsize=15,
+      maxiter=300,
+      popsize=25,
       polish=True,
       seed=42,
   )
 
   if res.success:
-    params_keys = ["A", "B", "C1", "omega", "phi1", "C2", "phi2"]
+    params_keys = [
+        "A",
+        "B",
+        "C1",
+        "omega",
+        "phi1",
+        "C2",
+        "phi2",
+        "energy_decay_10",
+        "energy_scale_macro",
+        "energy_scale_micro",
+    ]
     for i, k in enumerate(params_keys):
       st.session_state[k] = float(res.x[i])
       st.session_state.pop(f"input_{k}", None)
 
+    # Affichage complet et structuré de TOUS les paramètres optimisés dans la fenêtre bleue
     st.session_state["opt_msg"] = (
         f"**Tendance :** A={res.x[0]:.2f} | B={res.x[1]:.3f}\n\n"
         f"**Harmoniques :** C1={res.x[2]:.2f} | ω={res.x[3]:.3f} |"
         f" φ1={res.x[4]:.2f}\n\n"
         f"**Harmoniques 2 :** C2={res.x[5]:.2f} | φ2={res.x[6]:.2f}\n\n"
-        f"*Énergie pilotée par la variance multi-échelle des résidus[cite: 1].*"
+        f"**Énergie :** Decay={res.x[7]:.2f} | Macro={res.x[8]:.2f} |"
+        f" Micro={res.x[9]:.2f}"
     )
     return True
   return False
 
 
+if "prev_use_energy" not in st.session_state:
+  st.session_state["prev_use_energy"] = use_energy
+
+if use_energy != st.session_state["prev_use_energy"]:
+  st.session_state["prev_use_energy"] = use_energy
+  with st.spinner(
+      "🔄 Recalibrage automatique suite au changement du mode d'énergie..."
+  ):
+    if perform_auto_calibration(use_energy):
+      st.rerun()
+
 if st.sidebar.button(
     "🤖 Ajuster les paramètres au dataset",
-    help="Lance l'optimisation globale des paramètres.",
+    help=(
+        "❓ Lance l'optimisation globale (Differential Evolution) pour estimer"
+        " les 10 paramètres de manière robuste."
+    ),
 ):
-  with st.spinner("Optimisation globale en cours..."):
+  with st.spinner(
+      "Optimisation globale en cours (Recherche globale + Polish)..."
+  ):
     if perform_auto_calibration(use_energy):
       st.rerun()
     else:
@@ -460,7 +593,7 @@ if "opt_msg" in st.session_state:
   st.sidebar.info(st.session_state["opt_msg"])
 
 # ==============================================================================
-# 5. CALCULS GLOBAUX, POWER LAW & RÉSIDUS
+# 5. CALCULS GLOBAUX, POWER LAW, RÉSIDUS & INDICE DE RISQUE DE RUPTURE
 # ==============================================================================
 df["trend"] = f_trend(df["lnT"].values, A, B)
 df["trendPrice"] = np.exp(df["trend"])
@@ -516,6 +649,9 @@ rmse = np.sqrt(ss_res / len(df))
 rmse_pct = 100.0 * (np.exp(rmse) - 1.0)
 mae = np.mean(np.abs(df["actualLog"] - df["logModel"]))
 mae_pct = 100.0 * (np.exp(mae) - 1.0)
+
+df["upperBand"] = df["modelPrice"] * (1 + rmse_pct / 100.0)
+df["lowerBand"] = df["modelPrice"] / (1 + rmse_pct / 100.0)
 
 ratio_history = df["Close"] / df["modelPrice"]
 ratio_percentile = (ratio_history <= ratio_history.iloc[-1]).mean() * 100.0
@@ -594,6 +730,111 @@ def run_wf_analysis_fast(
   edge = dir_acc - bull_acc
 
   return dir_acc, bull_acc, edge, wf_mae, wf_rmse, r2_oos
+
+
+@st.cache_data
+def run_rolling_walk_forward(
+    df_data,
+    window_days=1095,
+    step_days=90,
+    horizon_days=365,
+    use_energy=True,
+):
+  days = df_data["Days"].values
+  dates = df_data["Date"].values
+  close = df_data["Close"].values
+  log_close = df_data["actualLog"].values
+  lnT_all = df_data["lnT"].values
+
+  results = []
+  n_samples = len(days)
+
+  start_idx = 0
+  while start_idx < n_samples:
+    train_end_day = days[start_idx] + window_days
+    train_end_idx = np.searchsorted(days, train_end_day)
+
+    test_end_day = train_end_day + horizon_days
+    test_end_idx = np.searchsorted(days, test_end_day)
+
+    if test_end_idx > n_samples:
+      break
+
+    n_train = train_end_idx - start_idx
+    n_test = test_end_idx - train_end_idx
+
+    if n_train > 200 and n_test > 30:
+      train_lnT = lnT_all[start_idx:train_end_idx]
+      train_act_log = log_close[start_idx:train_end_idx]
+
+      def loss_func_local(params):
+        p_A, p_B, p_C1, p_omega, p_p1, p_C2, p_p2 = params
+        preds = f_log_model(
+            train_lnT,
+            p_A,
+            p_B,
+            p_C1,
+            p_omega,
+            p_p1,
+            p_C2,
+            p_p2,
+            use_energy=use_energy,
+        )
+        return np.mean((train_act_log - preds) ** 2)
+
+      bounds = [
+          (-45.0, -25.0),
+          (4.5, 6.8),
+          (0.0, 3.0),
+          (8.0, 9.0),
+          (-np.pi, np.pi),
+          (0.0, 2.0),
+          (-np.pi, np.pi),
+      ]
+
+      init_guess = [-39.18, 5.845, 0.62, 8.635, -2.11, 0.267, -3.0]
+      res = minimize(
+          loss_func_local, init_guess, bounds=bounds, method="L-BFGS-B"
+      )
+
+      if res.success:
+        opt_A, opt_B, opt_C1, opt_omega, opt_p1, opt_C2, opt_p2 = res.x
+      else:
+        opt_A, opt_B, opt_C1, opt_omega, opt_p1, opt_C2, opt_p2 = init_guess
+
+      test_days = days[train_end_idx:test_end_idx]
+      test_lnT = np.log(test_days)
+      test_actuals = close[train_end_idx:test_end_idx]
+
+      test_preds = np.exp(
+          f_log_model(
+              test_lnT,
+              opt_A,
+              opt_B,
+              opt_C1,
+              opt_omega,
+              opt_p1,
+              opt_C2,
+              opt_p2,
+              use_energy=use_energy,
+          )
+      )
+
+      log_errs = np.log(test_actuals / test_preds)
+      rmse_wf = 100.0 * (np.exp(np.sqrt(np.mean(log_errs**2))) - 1.0)
+      mae_wf = 100.0 * (np.exp(np.mean(np.abs(log_errs))) - 1.0)
+
+      eval_date = pd.to_datetime(dates[train_end_idx - 1])
+      results.append({
+          "Date Evaluation": eval_date,
+          "RMSE Out-Of-Sample (%)": rmse_wf,
+          "MAE Out-Of-Sample (%)": mae_wf,
+      })
+
+    step_idx = np.searchsorted(days, days[start_idx] + step_days) - start_idx
+    start_idx += max(1, step_idx)
+
+  return pd.DataFrame(results)
 
 
 # ==============================================================================
@@ -738,11 +979,12 @@ fig = make_subplots(
     row_heights=[0.72, 0.28],
     subplot_titles=(
         (
-            "Prix & Prévisions LPPL (Énergie Observable Multi-Échelle)"
+            "Prix & Prévisions Avancées LPPL (Échelle Logarithmique du Temps"
+            " ln(t))"
             if log_time_axis
-            else "Prix & Prévisions LPPL (Temps Linéaire)"
+            else "Prix & Prévisions Avancées LPPL (Temps Linéaire / Date)"
         ),
-        "Analyse des Résidus (Z-Scores)",
+        "Analyse des Résidus (Z-Scores LPPL & Power Law)",
     ),
 )
 
@@ -793,7 +1035,11 @@ if show_lppl:
           x=x_hist,
           y=df["modelPrice"],
           mode="lines",
-          name="LPPL Model (Fit)",
+          name=(
+              "LPPL Model (Fit)"
+              if use_energy
+              else "LPPL Model Classique (Fit)"
+          ),
           line=dict(color="#FF9900", width=2),
       ),
       row=1,
@@ -872,31 +1118,171 @@ fig.add_trace(
     col=1,
 )
 
+lnT_min_val = float(df["lnT"].min())
+lnT_max_val = float(np.log(future_days_arr[-1]))
+
+step_angle = np.pi / 4
+k_min = int(np.floor((omega * lnT_min_val) / step_angle))
+k_max = int(np.ceil((omega * lnT_max_val) / step_angle))
+
+for k in range(k_min, k_max + 1):
+  lnT_line = (k * step_angle) / omega
+  angle_deg = int(round(np.rad2deg(k * step_angle)) % 360)
+
+  if not log_time_axis:
+    days_val = float(np.exp(lnT_line))
+    if not np.isfinite(days_val) or days_val > 1e9:
+      continue
+    x_val = GENESIS_DATE + timedelta(days=days_val)
+    if x_val < min_date or x_val > max_date + timedelta(
+        days=int(horizon_years * 365)
+    ):
+      continue
+  else:
+    x_val = lnT_line
+
+  if angle_deg in [90, 180]:
+    line_color = "rgba(255, 153, 0, 0.2)"
+    line_width = 1.2
+    line_dash = "dot"
+  elif angle_deg in [0, 270]:
+    line_color = "rgba(0, 255, 127, 0.1)"
+    line_width = 1.5
+    line_dash = "dash"
+  elif angle_deg in [45, 135, 225, 315]:
+    line_color = "rgba(255, 0, 0, 0.3)"
+    line_width = 0.8
+    line_dash = "dot"
+  else:
+    is_major = (angle_deg % 180) == 0
+    line_color = (
+        "rgba(255, 153, 0, 0.45)" if is_major else "rgba(255, 153, 0, 0.15)"
+    )
+    line_width = 1.2 if is_major else 0.8
+    line_dash = "solid" if is_major else "dot"
+
+  for r in [1, 2]:
+    fig.add_vline(
+        x=x_val,
+        line_dash=line_dash,
+        line_color=line_color,
+        line_width=line_width,
+        row=r,
+        col=1,
+    )
+
+  if angle_deg in [0, 90, 180, 270, 45, 135, 225, 315]:
+    if angle_deg in [0, 270]:
+      ann_text = f"<b>{angle_deg}°</b>"
+      ann_color = "#00FF7F"
+    elif angle_deg in [45, 135, 225, 315]:
+      ann_text = f"<b>{angle_deg}°</b>"
+      ann_color = "#FF6B6B"
+    else:
+      ann_text = f"<b>{angle_deg}°</b>"
+      ann_color = "#FF9900"
+
+    fig.add_annotation(
+        x=x_val,
+        y=0.96,
+        yref="paper",
+        text=ann_text,
+        showarrow=False,
+        font=dict(size=8, color=ann_color),
+        xanchor="center",
+        yanchor="bottom",
+    )
+
+fig.add_hline(
+    y=pl_sigma_upper,
+    line_dash="dash",
+    line_color="#38BDF8",
+    row=2,
+    col=1,
+    annotation_text=f"+{pl_sigma_upper}σ (PL Top)",
+    annotation_position="top right",
+)
+fig.add_hline(
+    y=-pl_sigma_lower,
+    line_dash="dash",
+    line_color="#38BDF8",
+    row=2,
+    col=1,
+    annotation_text=f"-{pl_sigma_lower}σ (PL Floor)",
+    annotation_position="bottom right",
+)
+fig.add_hline(
+    y=2.0,
+    line_dash="dot",
+    line_color="#FF9900",
+    row=2,
+    col=1,
+    annotation_text="+2.0σ (LPPL Top)",
+    annotation_position="top left",
+)
+fig.add_hline(
+    y=-2.0,
+    line_dash="dot",
+    line_color="#FF9900",
+    row=2,
+    col=1,
+    annotation_text="-2.0σ (LPPL Floor)",
+    annotation_position="bottom left",
+)
+fig.add_hline(y=0.0, line_dash="solid", line_color="gray", row=2, col=1)
+
 fig.update_yaxes(type="log", title_text="Prix (USD)", row=1, col=1)
 fig.update_yaxes(title_text="Z-Score (σ)", row=2, col=1)
 
 x_min_val = x_trend[0]
 x_max_val = x_trend[-1]
 
-xaxis_config_top = dict(
-    title=dict(text="", standoff=0),
-    rangeslider=dict(visible=False),
-    range=[x_min_val, x_max_val],
-    autorange=False,
+xaxis_config_top = (
+    dict(
+        title=dict(text="", standoff=0),
+        rangeslider=dict(visible=False),
+        range=[x_min_val, x_max_val],
+        autorange=False,
+    )
+    if log_time_axis
+    else dict(
+        title=dict(text="", standoff=0),
+        rangeselector=dict(
+            y=1.12,
+            x=0.0,
+            buttons=list([
+                dict(count=1, label="1y", step="year", stepmode="backward"),
+                dict(count=4, label="4y", step="year", stepmode="backward"),
+                dict(step="all", label="All"),
+            ]),
+        ),
+        rangeslider=dict(visible=False),
+        range=[x_min_val, x_max_val],
+        autorange=False,
+    )
 )
 fig.update_xaxes(xaxis_config_top, row=1, col=1)
 
-xaxis_config_bottom = dict(
-    title=dict(text=xaxis_title, standoff=20),
-    rangeslider=dict(visible=False),
-    range=[x_min_val, x_max_val],
-    autorange=False,
+xaxis_config_bottom = (
+    dict(
+        title=dict(text=xaxis_title, standoff=25),
+        rangeslider=dict(visible=False),
+        range=[x_min_val, x_max_val],
+        autorange=False,
+    )
+    if log_time_axis
+    else dict(
+        title=dict(text=xaxis_title, standoff=20),
+        rangeslider=dict(visible=False),
+        range=[x_min_val, x_max_val],
+        autorange=False,
+    )
 )
 fig.update_xaxes(xaxis_config_bottom, row=2, col=1)
 
 fig.update_layout(
     template="plotly_dark",
-    height=1000,
+    height=1050,
     margin=dict(l=5, r=5, t=100, b=120),
     legend=dict(
         orientation="h",
@@ -919,20 +1305,50 @@ fig.update_layout(
 )
 
 # ==============================================================================
-# 8. DASHBOARD & MÉTRIQUES
+# 8. DASHBOARD & MÉTRIQUES COMPLÈTES
 # ==============================================================================
 n_obs = len(df)
 k_params = 7
+
 r2_adj = (
     1.0 - ((1.0 - r2_global) * (n_obs - 1) / (n_obs - k_params - 1))
     if n_obs > (k_params + 1)
     else 0.0
 )
+mape = (
+    np.mean(np.abs((df["Close"] - df["modelPrice"]) / df["Close"])) * 100.0
+)
+res_std_dev = np.std(df["residuals"])
+res_skew = skew(df["residuals"])
+res_kurt = kurtosis(df["residuals"])
+
+_, _, _, _, wf_rmse_1y_val, r2_oos_1y = run_wf_analysis_fast(
+    365,
+    days_arr_glob,
+    close_arr_glob,
+    A,
+    B,
+    C1,
+    omega,
+    phi1,
+    C2,
+    phi2,
+    use_energy=use_energy,
+)
+gen_ratio = wf_rmse_1y_val / rmse_pct if rmse_pct > 0 else 1.0
 
 col_chart, col_dash = st.columns([3.2, 1])
 
 with col_chart:
   st.plotly_chart(fig, use_container_width=True)
+  with st.expander("❓ Guide de Lecture du Graphique Principal"):
+    st.markdown("""
+        * **Prix BTC (Gris)** : Cours de clôture quotidien du Bitcoin.
+        * **LPPL Model (Orange)** : Courbe ajustée du modèle LPPL sélectionné.
+        * **Power Law Fit (Bleu Cyan)** : Tendance fondamentale A + B * ln(t).
+        * **Quadrillage Oméga (Lignes et angles)** : Marqueurs angulaires de cycle log-périodique.
+        * **Z-Scores (Panneau Inférieur)** : Écarts normalisés du prix réel par rapport au modèle LPPL et à la Power Law.
+        """)
 
 with col_dash:
   with st.container(border=True):
@@ -942,13 +1358,48 @@ with col_dash:
       current_model_price = df["modelPrice"].iloc[-1]
       current_z_score = df["z_score"].iloc[-1]
 
-      st.metric("Prix Actuel BTC", f"${current_btc_price:,.2f}")
-      st.metric("Prix Théorique (LPPL)", f"${current_model_price:,.2f}")
-      st.metric("Z-Score LPPL", f"{current_z_score:.2f}σ")
+      price_delta = (
+          (current_btc_price - df["Close"].iloc[-2]) / df["Close"].iloc[-2] * 100
+          if len(df) > 1
+          else 0.0
+      )
+
+      st.metric(
+          "Prix Actuel BTC",
+          f"${current_btc_price:,.2f}",
+          delta=f"{price_delta:+.2f}% (24h)",
+          help=(
+              "❓ Dernier cours de clôture disponible pour le Bitcoin et"
+              " variation sur les 24 dernières heures."
+          ),
+      )
+      st.metric(
+          "Prix Théorique (LPPL)",
+          f"${current_model_price:,.2f}",
+          help=(
+              "❓ Valeur théorique du prix calculée par le modèle sélectionné"
+              " à la date actuelle."
+          ),
+      )
+      st.metric(
+          "Z-Score LPPL",
+          f"{current_z_score:.2f}σ",
+          help=(
+              "❓ Écart normalisé (en écarts-types σ) entre le prix réel et le"
+              " prix théorique du modèle LPPL."
+          ),
+      )
 
   with st.container(border=True):
     st.subheader("🎯 Valuation")
-    st.metric("Percentile Ratio", f"{ratio_percentile:.1f}%")
+    st.metric(
+        "Percentile Ratio",
+        f"{ratio_percentile:.1f}%",
+        help=(
+            "❓ Position relative de la valorisation actuelle par rapport à"
+            " l'historique complet."
+        ),
+    )
     st.markdown(
         f"Statut : <span"
         f" style='color:{state_color};font-weight:bold;'>{state_txt}</span>",
@@ -956,10 +1407,24 @@ with col_dash:
     )
 
   with st.container(border=True):
-    st.subheader("📊 Fit Quality")
-    st.metric("R² Global", f"{r2_global:.4f}")
-    st.metric("RMSE In-Sample", f"{rmse_pct:.1f}%")
+    st.subheader("📊 Fit Quality & Robustesse")
 
+    c_g1, c_g2 = st.columns(2)
+    c_g1.metric("R² Global", f"{r2_global:.4f}")
+    c_g2.metric("R² Ajusté", f"{r2_adj:.4f}")
+
+    st.metric("Forward R² (1Y OOS)", f"{r2_oos_1y:.4f}")
+
+    st.markdown("---")
+    st.caption("📐 **Métriques d'Erreur & Généralisation**")
+
+    c_m3, c_m4 = st.columns(2)
+    c_m3.metric("RMSE In-Sample", f"{rmse_pct:.1f}%")
+    c_m4.metric("MAE In-Sample", f"{mae_pct:.1f}%")
+
+    c_m5, c_m6 = st.columns(2)
+    c_m5.metric("OOS RMSE (1Y)", f"{wf_rmse_1y_val:.1f}%")
+    c_m6.metric("Ratio Out/In", f"{gen_ratio:.2f}x")
 
 # ==============================================================================
 # SECTION : INDICATEUR DE RISQUE DE RUPTURE (HAZARD RATE / BUBBLE INDEX)
@@ -2122,16 +2587,15 @@ with col_dist1:
 
 
 
-
-
 # ==============================================================================
-# 9. TABLEAUX DE PERFORMANCE & EXPORT CSV
+# 10. TABLEAUX DE PERFORMANCE FIXE & EXPORT CSV
 # ==============================================================================
 st.markdown("---")
 col_wf, col_proj = st.columns(2)
 
 with col_wf:
   st.subheader("📈 Performance Walk-Forward (Globale)")
+
   days_arr = df["Days"].values
   close_arr = df["Close"].values
 
@@ -2155,16 +2619,24 @@ with col_wf:
     wf_data.append({
         "Horizon": f"{h // 365} An(s)",
         "Directional Accuracy (%)": f"{acc:.1f}%",
+        "Bullish Bias (%)": f"{bull:.1f}%",
         "Alpha Edge (%)": f"{edge:+.1f}%",
+        "OOS MAE (%)": f"{mae_h:.1f}%",
         "OOS RMSE (%)": f"{rmse_h:.1f}%",
         "OOS R²": f"{r2_oos:.4f}",
     })
-  st.dataframe(
-      pd.DataFrame(wf_data), hide_index=True, use_container_width=True
-  )
+  df_wf_table = pd.DataFrame(wf_data)
+  st.dataframe(df_wf_table, hide_index=True, use_container_width=True)
+  with st.expander("❓ Guide de Lecture - Performance Walk-Forward"):
+    st.markdown("""
+        * **Directional Accuracy** : Pourcentage de prédictions correctes sur la direction du mouvement du prix (hausse vs baisse).
+        * **Alpha Edge** : Surperformance de la précision directionnelle par rapport au biais haussier global du marché sur l'horizon considéré.
+        * **OOS RMSE / MAE / R²** : Mesures globales de la qualité des prévisions hors échantillon pour chaque horizon temporel.
+        """)
 
 with col_proj:
   st.subheader("🔮 Prévisions Futures & Export")
+
   proj_data = []
   export_rows = []
   sigma_cone = 1.0
@@ -2183,26 +2655,38 @@ with col_proj:
           "Horizon": f"{yr}Y",
           "Date": date_target.strftime("%Y-%m-%d"),
           "LPPL Target": f"${proj_price:,.0f}",
-          "Cône (±1σ)": f"${cone_lower:,.0f} - ${cone_upper:,.0f}",
+          "Cône Prévision (±1σ)": f"${cone_lower:,.0f} - ${cone_upper:,.0f}",
       })
       export_rows.append({
           "Horizon": f"{yr}Y",
           "Target_Date": date_target.strftime("%Y-%m-%d"),
           "LPPL_Price_USD": round(proj_price, 2),
+          "Cone_Lower_USD": round(cone_lower, 2),
+          "Cone_Upper_USD": round(cone_upper, 2),
       })
 
   st.dataframe(
       pd.DataFrame(proj_data), hide_index=True, use_container_width=True
   )
 
-  csv_data = pd.DataFrame(export_rows).to_csv(index=False).encode("utf-8")
+  df_export = pd.DataFrame(export_rows)
+  csv_data = df_export.to_csv(index=False).encode("utf-8")
+
   st.download_button(
       label="📥 Télécharger les prévisions (CSV)",
       data=csv_data,
-      file_name=f"btc_lppl_observable_{last_date.strftime('%Y%m%d')}.csv",
+      file_name=f"btc_lppl_previsions_{last_date.strftime('%Y%m%d')}.csv",
       mime="text/csv",
+      help=(
+          "Exporte l'ensemble des prévisions futures et bandes de tendance au"
+          " format CSV."
+      ),
   )
-
+  with st.expander("❓ Guide de Lecture - Prévisions Futures & Cône"):
+    st.markdown("""
+        * **LPPL Target** : Cible de prix centrale estimée par le modèle pour chaque échéance future (1 à N années).
+        * **Cône de Prévision (±1σ)** : Intervalle de confiance probabiliste intégrant l'incertitude historique et la propagation des erreurs d'estimation.
+        """)
 
 
 
@@ -2417,4 +2901,3 @@ st.image(
         " Bitcoin – Inspiré des travaux de Didier Sornette"
     ),
 )
-
