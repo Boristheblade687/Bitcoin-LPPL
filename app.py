@@ -6,6 +6,7 @@ import plotly.figure_factory as ff
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from scipy.optimize import differential_evolution, minimize
+from scipy.signal import find_peaks
 from scipy.stats import kurtosis, skew, t
 import streamlit as st
 
@@ -99,7 +100,7 @@ st.sidebar.markdown("---")
 horizon_years = st.sidebar.slider(
     "🔮 Horizon de Prévision (Années)",
     min_value=1,
-    max_value=3,
+    max_value=10,
     value=3,
     step=1,
     help=(
@@ -183,9 +184,9 @@ with st.sidebar.expander("🎛️ Options du Modèle & Affichage", expanded=Fals
       ),
   )
   show_angular_points = st.checkbox(
-      "Afficher Points Angulaires Critiques (45°, 135°...)",
+      "Afficher Tops Angulaires (45°, 135°...)",
       value=True,
-      help="❓ Permet d'afficher les points angulaires critiques.",
+      help="❓ Permet d'afficher les tops angulaires.",
   )
 
 with st.sidebar.expander(
@@ -193,7 +194,7 @@ with st.sidebar.expander(
 ):
   st.caption(
       "Ajuste les paramètres dynamiques régissant l'évolution de la fraction"
-      " d'énergie entre les différents modes fréquentiels[cite: 1]."
+      " d'énergie entre les différents modes fréquentiels."
   )
   energy_decay_10 = st.slider(
       "Taux de Décroissance H1 ($f_{10}$)",
@@ -207,28 +208,17 @@ with st.sidebar.expander(
           " exponentielle de $f_{10}$ au fil du temps."
       ),
   )
+
   energy_scale_macro = st.slider(
-      "Poids Global Macro ($f_{0.5}, f_{1.0}$)",
+      "Poids Global Macro ($f_{1.0}$)",
       min_value=0.2,
       max_value=2.0,
       value=st.session_state["energy_scale_macro"],
       step=0.05,
       key="input_energy_scale_macro",
       help=(
-          "❓ Facteur multiplicatif appliqué aux fractions d'énergie"
-          " macro-cycliques."
-      ),
-  )
-  energy_scale_micro = st.slider(
-      "Poids Global Micro ($f_{2.0}, f_{3.0}, f_{4.0}$)",
-      min_value=0.2,
-      max_value=2.0,
-      value=st.session_state["energy_scale_micro"],
-      step=0.05,
-      key="input_energy_scale_micro",
-      help=(
-          "❓ Facteur multiplicatif appliqué aux fractions d'énergie"
-          " micro-cycliques."
+          "❓ Facteur multiplicatif appliqué à la fraction d'énergie"
+          " macro-cyclique $f_{1.0}$."
       ),
   )
 
@@ -367,14 +357,14 @@ if df.empty:
 # 3. FONCTIONS MATHÉMATIQUES DU MODÈLE & FRACTIONS D'ÉNERGIE
 # ==============================================================================
 def f_trend(lnT, a_val, b_val):
-  """Calcule la tendance fondamentale Power Law[cite: 3]."""
+  """Calcule la tendance fondamentale Power Law."""
   return a_val + b_val * lnT
 
 
 def compute_energy_fractions(
     lnT, decay_10=None, scale_macro=None, scale_micro=None
 ):
-  """Calcule les fractions d'énergie réactives (support optimisation & UI)[cite: 1, 2]."""
+  """Calcule les fractions d'énergie réactives (support optimisation & UI)."""
   days = np.exp(lnT)
   years = 2009.0082 + days / 365.25
   t_norm = (years - 2010.0) / (2026.0 - 2010.0)
@@ -406,10 +396,56 @@ def compute_energy_fractions(
   f_30 = 0.08 + 0.12 * (1.0 - np.exp(-3.0 * t_norm))
   f_40 = 0.06 + 0.02 * np.sin(t_norm * np.pi * 2)
 
-  e_h1 = (f_05 + f_10) * s_macro
+  e_h1 = f_10 * s_macro
   e_h2 = (f_20 + f_30 + f_40) * s_micro
 
   return e_h1, e_h2, f_05, f_10, f_20, f_30, f_40
+
+
+def compute_harmonic_energy_fractions(residuals, frequencies, log_time):
+  """Calcule les coefficients de Fourier, l'énergie de chaque harmonique
+
+  et sa fraction d'énergie normalisée dans l'espace log-temps (Parseval).
+  """
+  n = len(log_time)
+  energies = []
+  coefficients = []
+
+  for omega in frequencies:
+    cos_comp = np.cos(omega * log_time)
+    sin_comp = np.sin(omega * log_time)
+
+    a_k = np.dot(residuals, cos_comp) / (n / 2)
+    b_k = np.dot(residuals, sin_comp) / (n / 2)
+
+    e_k = a_k**2 + b_k**2
+    energies.append(e_k)
+    coefficients.append((a_k, b_k))
+
+  energies = np.array(energies)
+  total_energy = np.sum(energies)
+
+  if total_energy > 0:
+    energy_fractions = energies / total_energy
+  else:
+    energy_fractions = np.zeros_like(energies)
+
+  return coefficients, energy_fractions
+
+
+def modulate_harmonics_with_energy(coefficients, energy_fractions):
+  """Applique la pondération des fractions d'énergie sur les amplitudes des
+
+  harmoniques.
+  """
+  modulated_coefficients = []
+  for (a_k, b_k), f_k in zip(coefficients, energy_fractions):
+    scaling_factor = np.sqrt(f_k) if f_k > 0 else 0
+    a_mod = a_k * scaling_factor
+    b_mod = b_k * scaling_factor
+    modulated_coefficients.append((a_mod, b_mod))
+
+  return modulated_coefficients
 
 
 def f_log_model(
@@ -426,7 +462,7 @@ def f_log_model(
     scale_macro=None,
     scale_micro=None,
 ):
-  """Calcule le modèle LPPL global avec ou sans modulation énergétique[cite: 2, 3]."""
+  """Calcule le modèle LPPL global avec ou sans modulation énergétique."""
   trend_val = f_trend(lnT, a_val, b_val)
 
   if use_energy:
@@ -531,8 +567,8 @@ def perform_auto_calibration(current_use_energy):
       loss_func_fast,
       bounds=bounds,
       strategy="best1bin",
-      maxiter=300,
-      popsize=25,
+      maxiter=250,
+      popsize=20,
       polish=True,
       seed=42,
   )
@@ -554,7 +590,6 @@ def perform_auto_calibration(current_use_energy):
       st.session_state[k] = float(res.x[i])
       st.session_state.pop(f"input_{k}", None)
 
-    # Affichage complet et structuré de TOUS les paramètres optimisés dans la fenêtre bleue
     st.session_state["opt_msg"] = (
         f"**Tendance :** A={res.x[0]:.2f} | B={res.x[1]:.3f}\n\n"
         f"**Harmoniques :** C1={res.x[2]:.2f} | ω={res.x[3]:.3f} |"
@@ -679,7 +714,7 @@ state_txt, state_color = get_market_state(ratio_percentile)
 
 
 # ==============================================================================
-# 6. FONCTIONS WALK-FORWARD (Avec Warm-Start Intégré)
+# 6. FONCTIONS WALK-FORWARD
 # ==============================================================================
 @st.cache_data
 def run_wf_analysis_fast(
@@ -754,9 +789,6 @@ def run_rolling_walk_forward(
   results = []
   n_samples = len(days)
 
-  # Initialisation du point de départ global pour la toute première fenêtre
-  current_guess = [-39.18, 5.845, 0.62, 8.635, -2.11, 0.267, -3.0]
-
   start_idx = 0
   while start_idx < n_samples:
     train_end_day = days[start_idx] + window_days
@@ -800,19 +832,15 @@ def run_rolling_walk_forward(
           (-np.pi, np.pi),
       ]
 
-      # WARM-START : Utilisation de current_guess issu de l'itération précédente
+      init_guess = [-39.18, 5.845, 0.62, 8.635, -2.11, 0.267, -3.0]
       res = minimize(
-          loss_func_local, current_guess, bounds=bounds, method="L-BFGS-B"
+          loss_func_local, init_guess, bounds=bounds, method="L-BFGS-B"
       )
 
       if res.success:
         opt_A, opt_B, opt_C1, opt_omega, opt_p1, opt_C2, opt_p2 = res.x
-        # Mise à jour de la référence pour le prochain pas de glissement
-        current_guess = res.x
       else:
-        opt_A, opt_B, opt_C1, opt_omega, opt_p1, opt_C2, opt_p2 = res.x if hasattr(res, "x") else current_guess
-        if hasattr(res, "x"):
-          current_guess = res.x
+        opt_A, opt_B, opt_C1, opt_omega, opt_p1, opt_C2, opt_p2 = init_guess
 
       test_days = days[train_end_idx:test_end_idx]
       test_lnT = np.log(test_days)
@@ -847,6 +875,8 @@ def run_rolling_walk_forward(
     start_idx += max(1, step_idx)
 
   return pd.DataFrame(results)
+
+
 # ==============================================================================
 # 7. PROJECTIONS & GRAPHIQUE PRINCIPAL
 # ==============================================================================
@@ -1014,6 +1044,7 @@ if show_lppl:
   sigma_levels = [
       {"mult": 1.0, "opacity": 0.18, "name": "Canal ±1.0σ (68%)"},
       {"mult": 2.0, "opacity": 0.10, "name": "Canal ±2.0σ (95%)"},
+      {"mult": 3.0, "opacity": 0.05, "name": "Canal ±3.0σ (99.7%)"},
   ]
 
   for band in sigma_levels:
@@ -1040,6 +1071,32 @@ if show_lppl:
         col=1,
     )
 
+    if m == 3.0:
+      fig.add_trace(
+          go.Scatter(
+              x=x_lppl_all,
+              y=comp_upper,
+              mode="lines",
+              line=dict(color="rgba(255, 153, 0, 0.3)", width=1, dash="dash"),
+              showlegend=False,
+              hoverinfo="skip",
+          ),
+          row=1,
+          col=1,
+      )
+      fig.add_trace(
+          go.Scatter(
+              x=x_lppl_all,
+              y=comp_lower,
+              mode="lines",
+              line=dict(color="rgba(255, 153, 0, 0.3)", width=1, dash="dash"),
+              showlegend=False,
+              hoverinfo="skip",
+          ),
+          row=1,
+          col=1,
+      )
+
   fig.add_trace(
       go.Scatter(
           x=x_hist,
@@ -1055,6 +1112,7 @@ if show_lppl:
       row=1,
       col=1,
   )
+
   fig.add_trace(
       go.Scatter(
           x=x_proj,
@@ -1066,7 +1124,6 @@ if show_lppl:
       row=1,
       col=1,
   )
-
 if show_trend:
   fig.add_trace(
       go.Scatter(
@@ -1135,7 +1192,6 @@ step_angle = np.pi / 4
 k_min = int(np.floor((omega * lnT_min_val) / step_angle))
 k_max = int(np.ceil((omega * lnT_max_val) / step_angle))
 
-# Initialisation des listes pour stocker les points rouges (tops angulaires)
 marker_x = []
 marker_y = []
 marker_text = []
@@ -1169,7 +1225,6 @@ for k in range(k_min, k_max + 1):
     line_width = 0.8
     line_dash = "dot"
 
-    # Calcul du prix uniquement si la case est cochée
     if show_angular_points:
       price_val = np.exp(
           f_log_model(
@@ -1227,7 +1282,6 @@ for k in range(k_min, k_max + 1):
         yanchor="bottom",
     )
 
-# Ajout de la trace des points rouges conditionnée par la case à cocher
 if show_angular_points and marker_x:
   fig.add_trace(
       go.Scatter(
@@ -1355,6 +1409,7 @@ fig.update_layout(
         bgcolor="rgba(0,0,0,0.5)",
     ),
 )
+
 # ==============================================================================
 # 8. DASHBOARD & MÉTRIQUES COMPLÈTES
 # ==============================================================================
@@ -1477,6 +1532,7 @@ with col_dash:
     c_m5.metric("OOS RMSE (1Y)", f"{wf_rmse_1y_val:.1f}%")
     c_m6.metric("Ratio Out/In", f"{gen_ratio:.2f}x")
 
+
 # ==============================================================================
 # SECTION : INDICATEUR DE RISQUE DE RUPTURE (HAZARD RATE / BUBBLE INDEX)
 # ==============================================================================
@@ -1555,32 +1611,58 @@ with col_haz2:
   )
 
 # ==============================================================================
-# SECTION : LES DEUX HORLOGES DE CYCLE
+# SECTION : LES DEUX HORLOGES DE CYCLE & GRAVITATIONNELLES (SÉLECTEUR)
 # ==============================================================================
 st.markdown("---")
-st.subheader("🕒 Comparatif des Horloges de Cycle (Phase & Gravitation)")
+st.subheader("🕒 Comparatif des Horloges de Cycle & Gravitationnelles")
 
 with st.expander("❓ Guide de Lecture - Horloges de Cycle"):
   st.markdown("""
-    * **Horloge Gravitationnelle (Gauche)** : Espace de phase représentant le Z-Score de la Power Law en abscisse face à sa vitesse de variation (Momentum) en ordonnée. Le point vert (**📍 ACTUEL**) indique la position actuelle par rapport à l'attracteur fondamental.
+    * **Horloge Gravitationnelle (Gauche)** : Permet de basculer entre l'attracteur **Power Law** (Z-Score PL vs Momentum) et l'attracteur **LPPL** (Z-Score LPPL vs Momentum) via le menu déroulant ci-dessous. Le point vert (**📍 ACTUEL**) indique la position actuelle par rapport à l'attracteur choisi.
     * **Horloge Log-Périodique (Droite)** : Représentation polaire de la phase angulaire $\\omega \\cdot \\ln(t)$. Les cadrans de couleur et les secteurs cibles verts permettent de suivre la progression et la résonance des sous-cycles log-périodiques.
     """)
 
+# Sélecteur pour basculer entre les deux horloges gravitationnelles
+grav_clock_choice = st.selectbox(
+    "🔄 Sélectionner le modèle de l'Horloge Gravitationnelle (Gauche)",
+    ["Attracteur Power Law (Z-Score PL)", "Attracteur LPPL (Z-Score LPPL)"],
+    index=1,
+    help="Permet de basculer l'horloge gravitationnelle entre le modèle de tendance Power Law et le modèle LPPL.",
+)
+
 col_clock_grav, col_clock_omega = st.columns(2)
 
-# --- 1. HORLOGE GRAVITATIONNELLE (GAUCHE) ---
+# --- 1. HORLOGE GRAVITATIONNELLE (GAUCHE - DYNAMIQUE) ---
 with col_clock_grav:
-  st.markdown(
-      "##### 🌍 Horloge Gravitationnelle — Attracteur PowerLaw (Z-Score vs"
-      " Momentum)"
-  )
-  df["z_velocity"] = df["z_score_pl"].diff(30).fillna(0)
+  if "Power Law" in grav_clock_choice:
+    st.markdown(
+        "##### 🌍 Horloge Gravitationnelle — Attracteur Power Law (Z-Score vs"
+        " Momentum)"
+    )
+    df["z_velocity_pl"] = df["z_score_pl"].diff(30).fillna(0)
+    x_data = df["z_score_pl"]
+    y_data = df["z_velocity_pl"]
+    latest_x = df["z_score_pl"].iloc[-1]
+    latest_y = df["z_velocity_pl"].iloc[-1]
+    x_axis_title = "Position (Z-Score Power Law)"
+  else:
+    st.markdown(
+        "##### 🌍 Horloge Gravitationnelle — Attracteur LPPL (Z-Score vs"
+        " Momentum)"
+    )
+    df["z_velocity_lppl"] = df["z_score"].diff(30).fillna(0)
+    x_data = df["z_score"]
+    y_data = df["z_velocity_lppl"]
+    latest_x = df["z_score"].iloc[-1]
+    latest_y = df["z_velocity_lppl"].iloc[-1]
+    x_axis_title = "Position (Z-Score LPPL)"
+
   fig_clock = go.Figure()
 
   fig_clock.add_trace(
       go.Scatter(
-          x=df["z_score_pl"],
-          y=df["z_velocity"],
+          x=x_data,
+          y=y_data,
           mode="lines+markers",
           marker=dict(
               size=3,
@@ -1606,11 +1688,10 @@ with col_clock_grav:
       line_width=1,
   )
 
-  latest_row = df.iloc[-1]
   fig_clock.add_trace(
       go.Scatter(
-          x=[latest_row["z_score_pl"]],
-          y=[latest_row["z_velocity"]],
+          x=[latest_x],
+          y=[latest_y],
           mode="markers+text",
           marker=dict(
               size=14,
@@ -1632,7 +1713,7 @@ with col_clock_grav:
       plot_bgcolor="rgba(10, 10, 15, 0.6)",
       paper_bgcolor="rgba(0,0,0,0)",
       xaxis=dict(
-          title="Position (Z-Score)",
+          title=x_axis_title,
           gridcolor="rgba(255, 255, 255, 0.08)",
           linecolor="rgba(255, 255, 255, 0.15)",
       ),
@@ -1863,6 +1944,7 @@ fig_speed_profile.update_layout(
 )
 
 st.plotly_chart(fig_speed_profile, use_container_width=True)
+
 
 
 # ==============================================================================
@@ -2292,13 +2374,6 @@ fig_oos_parallel.update_layout(
 )
 st.plotly_chart(fig_oos_parallel, use_container_width=True)
 
-with st.expander("❓ Guide de Lecture - Comparaison de la Courbe OOS"):
-  st.markdown("""
-      * **Prix BTC Réel (Gris)** : Historique des cours de clôture du Bitcoin sur la période complète.
-      * **OOS (Bleu Clair)** : Courbe de prévision générée à partir des paramètres historiques ajustés, évaluée en aveugle (Out-Of-Sample) sur l'horizon sélectionné.
-      * **Utilité** : Permet de visualiser visuellement la robustesse prédictive du modèle en comparant la trajectoire anticipée aux mouvements réels du marché.
-      """)
-
 # ==============================================================================
 # 9. ROLLING WALK-FORWARD & STABILITÉ TEMPORELLE
 # ==============================================================================
@@ -2370,11 +2445,6 @@ with col_rwf_chart:
         xaxis_title="Date d'Évaluation",
     )
     st.plotly_chart(fig_rwf, use_container_width=True)
-    with st.expander("❓ Guide de Lecture - Stabilité Temporelle"):
-      st.markdown("""
-          * **RMSE / MAE OOS (%)** : Erreur de prédiction hors échantillon calculée de manière glissante au fil du temps.
-          * **Stabilité du Modèle** : Des pics d'erreur soudains signalent des ruptures de régime macroéconomique ou des bulles non anticipées, tandis qu'une courbe stable valide la constance de la précision du modèle.
-          """)
   else:
     st.info(
         "Historique insuffisant pour calculer les fenêtres glissantes"
@@ -2637,7 +2707,6 @@ with col_dist1:
     st.warning("Données OOS insuffisantes pour afficher la distribution.")
 
 
-
 # ==============================================================================
 # 10. TABLEAUX DE PERFORMANCE FIXE & EXPORT CSV
 # ==============================================================================
@@ -2678,12 +2747,6 @@ with col_wf:
     })
   df_wf_table = pd.DataFrame(wf_data)
   st.dataframe(df_wf_table, hide_index=True, use_container_width=True)
-  with st.expander("❓ Guide de Lecture - Performance Walk-Forward"):
-    st.markdown("""
-        * **Directional Accuracy** : Pourcentage de prédictions correctes sur la direction du mouvement du prix (hausse vs baisse).
-        * **Alpha Edge** : Surperformance de la précision directionnelle par rapport au biais haussier global du marché sur l'horizon considéré.
-        * **OOS RMSE / MAE / R²** : Mesures globales de la qualité des prévisions hors échantillon pour chaque horizon temporel.
-        """)
 
 with col_proj:
   st.subheader("🔮 Prévisions Futures & Export")
@@ -2733,12 +2796,6 @@ with col_proj:
           " format CSV."
       ),
   )
-  with st.expander("❓ Guide de Lecture - Prévisions Futures & Cône"):
-    st.markdown("""
-        * **LPPL Target** : Cible de prix centrale estimée par le modèle pour chaque échéance future (1 à N années).
-        * **Cône de Prévision (±1σ)** : Intervalle de confiance probabiliste intégrant l'incertitude historique et la propagation des erreurs d'estimation.
-        """)
-
 
 
 # ==============================================================================
@@ -2952,5 +3009,9 @@ st.image(
         " Bitcoin – Inspiré des travaux de Didier Sornette"
     ),
 )
+
+
+
+
 
 
