@@ -53,13 +53,15 @@ GENESIS_DATE = pd.to_datetime("2009-01-03")
 # ==============================================================================
 # 1. PARAMÈTRES ET INPUTS (SIDEBAR & CONFIGURATION)
 # ==============================================================================
-st.sidebar.header("⚙️ Paramètres du Modèle")
-
 st.sidebar.warning(
     "⚠️ **Avertissement :** Ce modèle est conçu exclusivement à des fins de"
     " recherche et de modélisation statistique à long terme. Il ne constitue"
     " en aucun cas un conseil en investissement."
 )
+
+st.sidebar.header("⚙️ Paramètres du Modèle")
+
+
 
 st.sidebar.subheader("📁 Gestion de Configuration")
 
