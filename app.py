@@ -57,6 +57,7 @@ st.sidebar.warning(
     "⚠️ **Avertissement :** Ce modèle est conçu exclusivement à des fins de"
     " recherche et de modélisation statistique à long terme. Il ne constitue"
     " en aucun cas un conseil en investissement."
+    " NOT FINANCIAL ADVICE "
 )
 
 st.sidebar.header("⚙️ Paramètres du Modèle")
