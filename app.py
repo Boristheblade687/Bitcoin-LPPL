@@ -55,7 +55,7 @@ GENESIS_DATE = pd.to_datetime("2009-01-03")
 # ==============================================================================
 st.sidebar.warning(
     "⚠️ **Avertissement :** Ce modèle est conçu exclusivement à des fins de"
-    " recherche et de modélisation statistique à long terme. Il ne constitue"
+    " recherche et de modélisation statistique. Il ne constitue"
     " en aucun cas un conseil en investissement."
     " !!! NOT FINANCIAL ADVICE !!! "
 )
