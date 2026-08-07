@@ -6,3 +6,5 @@ scipy
 yfinance
 scikit-learn
 PyWavelets
+EMD-signal
+arch
