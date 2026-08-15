@@ -311,55 +311,75 @@ with tab_overview:
   # ==============================================================================
   @st.cache_data(ttl=3600)
   def load_btc_data():
-    df_cm = pd.DataFrame()
-    df_yf = pd.DataFrame()
+      df_cm = pd.DataFrame()
+      df_recent = pd.DataFrame()
 
-    try:
-      url_coinmetrics = (
-          "https://raw.githubusercontent.com/coinmetrics/data/master/csv/btc.csv"
+      # 1. CoinMetrics pour l'historique ancien (2009 à 2020+)
+      try:
+          url_coinmetrics = (
+              "https://raw.githubusercontent.com/coinmetrics/data/master/csv/btc.csv"
+          )
+          df_raw_cm = pd.read_csv(url_coinmetrics)
+          df_cm["Date"] = pd.to_datetime(df_raw_cm["time"]).dt.tz_localize(None)
+          df_cm["Close"] = pd.to_numeric(df_raw_cm["PriceUSD"], errors="coerce")
+          df_cm = df_cm.dropna(subset=["Close"])
+      except Exception:
+          pass
+
+      # 2. API Binance (Public REST) pour les données récentes jusqu'à aujourd'hui
+      try:
+          import requests
+          url = "https://api.binance.com/api/v3/klines"
+          params = {"symbol": "BTCUSDT", "interval": "1d", "limit": 1000}
+          response = requests.get(url, timeout=10)
+          if response.status_code == 200:
+              data = response.json()
+              records = []
+              for item in data:
+                  open_time = pd.to_datetime(item[0], unit="ms")
+                  close_price = float(item[4])
+                  records.append({"Date": open_time, "Close": close_price})
+              df_recent = pd.DataFrame(records)
+      except Exception:
+          pass
+
+      # Fallback si Binance échoue : essai avec yfinance
+      if df_recent.empty:
+          try:
+              import yfinance as yf
+              df_raw_yf = yf.download("BTC-USD", start="2017-01-01", progress=False)
+              if not df_raw_yf.empty:
+                  if isinstance(df_raw_yf.columns, pd.MultiIndex):
+                      df_raw_yf = df_raw_yf.droplevel(1, axis=1)
+                  df_recent = df_raw_yf.reset_index()[["Date", "Close"]].dropna()
+                  df_recent["Date"] = pd.to_datetime(df_recent["Date"]).dt.tz_localize(None)
+          except Exception:
+              pass
+
+      # Fusion de l'historique ancien et des données récentes à jour
+      if not df_cm.empty and not df_recent.empty:
+          min_recent_date = df_recent["Date"].min()
+          df_cm_old = df_cm[df_cm["Date"] < min_recent_date]
+          df = pd.concat([df_cm_old, df_recent], ignore_index=True)
+      elif not df_recent.empty:
+          df = df_recent
+      elif not df_cm.empty:
+          df = df_cm
+      else:
+          st.error("Erreur critique : Impossible de charger les données historiques.")
+          st.stop()
+
+      df = (
+          df[df["Close"] > 0]
+          .drop_duplicates(subset=["Date"])
+          .sort_values("Date", ascending=True)
+          .reset_index(drop=True)
       )
-      df_raw_cm = pd.read_csv(url_coinmetrics)
-      df_cm["Date"] = pd.to_datetime(df_raw_cm["time"])
-      df_cm["Close"] = pd.to_numeric(df_raw_cm["PriceUSD"], errors="coerce")
-      df_cm = df_cm.dropna(subset=["Close"])
-    except Exception:
-      pass
-
-    try:
-      import yfinance as yf
-
-      df_raw_yf = yf.download("BTC-USD", start="2009-01-03", progress=False)
-      if not df_raw_yf.empty:
-        if isinstance(df_raw_yf.columns, pd.MultiIndex):
-          df_raw_yf = df_raw_yf.droplevel(1, axis=1)
-        df_yf = df_raw_yf.reset_index()
-        df_yf = df_yf.rename(columns={"Date": "Date", "Close": "Close"})
-        df_yf = df_yf[["Date", "Close"]].dropna()
-    except Exception:
-      pass
-
-    if not df_cm.empty and not df_yf.empty:
-      min_yf_date = df_yf["Date"].min()
-      df_cm_old = df_cm[df_cm["Date"] < min_yf_date]
-      df = pd.concat([df_cm_old, df_yf], ignore_index=True)
-    elif not df_yf.empty:
-      df = df_yf
-    elif not df_cm.empty:
-      df = df_cm
-    else:
-      st.error("Erreur critique : Impossible de charger les données historiques.")
-      st.stop()
-
-    df = (
-        df[df["Close"] > 0]
-        .sort_values("Date", ascending=True)
-        .reset_index(drop=True)
-    )
-    df["Days"] = (df["Date"] - GENESIS_DATE).dt.total_seconds() / 86400.0
-    df["Days"] = np.maximum(df["Days"], 1.0)
-    df["lnT"] = np.log(df["Days"])
-    df["actualLog"] = np.log(df["Close"])
-    return df
+      df["Days"] = (df["Date"] - GENESIS_DATE).dt.total_seconds() / 86400.0
+      df["Days"] = np.maximum(df["Days"], 1.0)
+      df["lnT"] = np.log(df["Days"])
+      df["actualLog"] = np.log(df["Close"])
+      return df
 
 
   raw_df = load_btc_data()
