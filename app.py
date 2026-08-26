@@ -5,7 +5,6 @@ import pandas as pd
 import plotly.figure_factory as ff
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from scipy.optimize import differential_evolution, minimize
 from scipy.signal import find_peaks, periodogram
 from scipy.stats import kurtosis, skew, t
 from scipy.stats import norm
@@ -20,11 +19,11 @@ except ImportError:
 # CONFIGURATION DE LA PAGE STREAMLIT
 # ==============================================================================
 st.set_page_config(
-    page_title="Bitcoin PowerLaw + LPPL 2 Harmonics Advanced",
+    page_title="Bitcoin PowerLaw + LPPL — Cloud Manual",
     layout="wide",
     page_icon="₿",
 )
-st.title("₿ Bitcoin PowerLaw + LPPL (2 Harmonics) - Advanced Analytics")
+st.title("₿ Bitcoin PowerLaw + LPPL (2 Harmonics) — Cloud / Paramètres manuels")
 
 
 
@@ -262,6 +261,11 @@ with tab_overview:
               " micro-cyclique."
           ),
       )
+
+  # Les contrôles d'énergie sont eux aussi appliqués manuellement au modèle.
+  st.session_state["energy_decay_10"] = energy_decay_10
+  st.session_state["energy_scale_macro"] = energy_scale_macro
+  st.session_state["energy_scale_micro"] = energy_scale_micro
 
   with st.sidebar.expander("🌊 Harmoniques LPPL", expanded=False):
     st.markdown("**Harmonic 1 (Macro Cycle)**")
@@ -572,126 +576,15 @@ with tab_overview:
 
 
   # ==============================================================================
-  # 4. OPTIMISATION GLOBALE AUTOMATIQUE & DÉTECTION DE CHANGEMENT D'ÉTAT
+  # 4. MODE CLOUD : PARAMÈTRES EXCLUSIVEMENT MANUELS
   # ==============================================================================
   st.sidebar.markdown("---")
-  st.sidebar.subheader("🎯 Calibrage Automatique")
-
-
-  def perform_auto_calibration(current_use_energy):
-    lnT_vec = df["lnT"].to_numpy()
-    act_log_vec = df["actualLog"].to_numpy()
-
-    def loss_func_fast(params):
-      (
-          p_A,
-          p_B,
-          p_C1,
-          p_omega,
-          p_p1,
-          p_C2,
-          p_p2,
-          p_decay,
-          p_s_macro,
-          p_s_micro,
-      ) = params
-      preds = f_log_model(
-          lnT_vec,
-          p_A,
-          p_B,
-          p_C1,
-          p_omega,
-          p_p1,
-          p_C2,
-          p_p2,
-          use_energy=current_use_energy,
-          decay_10=p_decay,
-          scale_macro=p_s_macro,
-          scale_micro=p_s_micro,
-      )
-      return np.mean((act_log_vec - preds) ** 2)
-
-    bounds = [
-        (-45.0, -25.0),  # A
-        (5.2, 6.5),  # B
-        (0.0, 3.0),  # C1
-        (8.4, 9.0),  # omega
-        (-np.pi, np.pi),  # phi1
-        (0.0, 2.0),  # C2
-        (-np.pi, np.pi),  # phi2
-        (0.5, 5.0),  # energy_decay_10
-        (0.2, 2.0),  # energy_scale_macro
-        (0.2, 2.0),  # energy_scale_micro
-    ]
-
-    res = differential_evolution(
-        loss_func_fast,
-        bounds=bounds,
-        strategy="best1bin",
-        maxiter=250,
-        popsize=20,
-        polish=True,
-        seed=42,
-    )
-
-    if res.success:
-      params_keys = [
-          "A",
-          "B",
-          "C1",
-          "omega",
-          "phi1",
-          "C2",
-          "phi2",
-          "energy_decay_10",
-          "energy_scale_macro",
-          "energy_scale_micro",
-      ]
-      for i, k in enumerate(params_keys):
-        st.session_state[k] = float(res.x[i])
-        st.session_state.pop(f"input_{k}", None)
-
-      st.session_state["opt_msg"] = (
-          f"**Tendance :** A={res.x[0]:.2f} | B={res.x[1]:.3f}\n\n"
-          f"**Harmoniques :** C1={res.x[2]:.2f} | ω={res.x[3]:.3f} |"
-          f" φ1={res.x[4]:.2f}\n\n"
-          f"**Harmoniques 2 :** C2={res.x[5]:.2f} | φ2={res.x[6]:.2f}\n\n"
-          f"**Énergie :** Decay={res.x[7]:.2f} | Macro={res.x[8]:.2f} |"
-          f" Micro={res.x[9]:.2f}"
-      )
-      return True
-    return False
-
-
-  if "prev_use_energy" not in st.session_state:
-    st.session_state["prev_use_energy"] = use_energy
-
-  if use_energy != st.session_state["prev_use_energy"]:
-    st.session_state["prev_use_energy"] = use_energy
-    with st.spinner(
-        "🔄 Recalibrage automatique suite au changement du mode d'énergie..."
-    ):
-      if perform_auto_calibration(use_energy):
-        st.rerun()
-
-  if st.sidebar.button(
-      "🤖 Ajuster les paramètres au dataset",
-      help=(
-          "❓ Lance l'optimisation globale (Differential Evolution) pour estimer"
-          " les 10 paramètres de manière robuste."
-      ),
-  ):
-    with st.spinner(
-        "Optimisation globale en cours (Recherche globale + Polish)..."
-    ):
-      if perform_auto_calibration(use_energy):
-        st.rerun()
-      else:
-        st.sidebar.error("L'optimisation globale a échoué.")
-
-  if "opt_msg" in st.session_state:
-    st.sidebar.success("Ajustement réussi !")
-    st.sidebar.info(st.session_state["opt_msg"])
+  st.sidebar.subheader("✍️ Paramètres manuels")
+  st.sidebar.caption(
+      "Cette version Cloud n'exécute aucun calibrage automatique global. "
+      "Les valeurs A, B, C1, ω, φ1, C2, φ2 et les paramètres d'énergie sont "
+      "uniquement ceux que vous renseignez dans les panneaux ci-dessus."
+  )
 
   # ==============================================================================
   # 5. CALCULS GLOBAUX, POWER LAW, RÉSIDUS & INDICE DE RISQUE DE RUPTURE
@@ -840,6 +733,8 @@ with tab_overview:
       step_days=90,
       horizon_days=365,
       use_energy=True,
+      lppl_params=None,
+      energy_params=None,
   ):
     days = df_data["Days"].values
     dates = df_data["Date"].values
@@ -849,6 +744,10 @@ with tab_overview:
 
     results = []
     n_samples = len(days)
+    if lppl_params is None:
+      return pd.DataFrame()
+    manual_params = np.asarray(lppl_params, dtype=float)
+    manual_energy = energy_params or (None, None, None)
 
     start_idx = 0
     while start_idx < n_samples:
@@ -865,44 +764,6 @@ with tab_overview:
       n_test = test_end_idx - train_end_idx
 
       if n_train > 200 and n_test > 30:
-        train_lnT = lnT_all[start_idx:train_end_idx]
-        train_act_log = log_close[start_idx:train_end_idx]
-
-        def loss_func_local(params):
-          p_A, p_B, p_C1, p_omega, p_p1, p_C2, p_p2 = params
-          preds = f_log_model(
-              train_lnT,
-              p_A,
-              p_B,
-              p_C1,
-              p_omega,
-              p_p1,
-              p_C2,
-              p_p2,
-              use_energy=use_energy,
-          )
-          return np.mean((train_act_log - preds) ** 2)
-
-        bounds = [
-            (-45.0, -25.0),
-            (4.5, 6.8),
-            (0.0, 3.0),
-            (8.0, 9.0),
-            (-np.pi, np.pi),
-            (0.0, 2.0),
-            (-np.pi, np.pi),
-        ]
-
-        init_guess = [-39.18, 5.845, 0.62, 8.635, -2.11, 0.267, -3.0]
-        res = minimize(
-            loss_func_local, init_guess, bounds=bounds, method="L-BFGS-B"
-        )
-
-        if res.success:
-          opt_A, opt_B, opt_C1, opt_omega, opt_p1, opt_C2, opt_p2 = res.x
-        else:
-          opt_A, opt_B, opt_C1, opt_omega, opt_p1, opt_C2, opt_p2 = init_guess
-
         test_days = days[train_end_idx:test_end_idx]
         test_lnT = np.log(test_days)
         test_actuals = close[train_end_idx:test_end_idx]
@@ -910,14 +771,11 @@ with tab_overview:
         test_preds = np.exp(
             f_log_model(
                 test_lnT,
-                opt_A,
-                opt_B,
-                opt_C1,
-                opt_omega,
-                opt_p1,
-                opt_C2,
-                opt_p2,
+                *manual_params,
                 use_energy=use_energy,
+                decay_10=manual_energy[0],
+                scale_macro=manual_energy[1],
+                scale_micro=manual_energy[2],
             )
         )
 
@@ -945,20 +803,20 @@ with tab_overview:
       refit_step_days=180,
       projection_horizon_days=1095,
       use_energy=True,
+      lppl_params=None,
+      energy_params=None,
   ):
-    """Prévisions LPPL OOS historiques, avec réajustement successif du modèle."""
+    """Projections historiques à paramètres manuels, sans réajustement automatique."""
     days = df_data["Days"].to_numpy()
     dates = df_data["Date"].to_numpy()
     log_prices = df_data["actualLog"].to_numpy()
     n_samples = len(days)
     forecast_frames = []
     start_idx = 0
-
-    bounds = [
-        (-45.0, -25.0), (4.5, 6.8), (0.0, 3.0), (8.0, 9.0),
-        (-np.pi, np.pi), (0.0, 2.0), (-np.pi, np.pi),
-    ]
-    init_guess = [-39.18, 5.845, 0.62, 8.635, -2.11, 0.267, -3.0]
+    if lppl_params is None:
+      return pd.DataFrame()
+    manual_params = np.asarray(lppl_params, dtype=float)
+    manual_energy = energy_params or (None, None, None)
 
     while start_idx < n_samples:
       train_end_day = days[start_idx] + train_window_days
@@ -971,35 +829,36 @@ with tab_overview:
       if train_end_idx - start_idx > 200 and projection_end_idx > train_end_idx:
         train_lnT = np.log(days[start_idx:train_end_idx])
         train_log_prices = log_prices[start_idx:train_end_idx]
-
-        def loss_func_local(params):
-          return np.mean((
-              train_log_prices
-              - f_log_model(
-                  train_lnT, *params, use_energy=use_energy
-              )
-          ) ** 2)
-
-        result = minimize(
-            loss_func_local, init_guess, bounds=bounds, method="L-BFGS-B"
-        )
-        params = result.x if result.success else np.asarray(init_guess)
         forecast_days = days[train_end_idx:projection_end_idx]
         forecast_lnT = np.log(forecast_days)
         train_residual_std = np.std(
             train_log_prices
-            - f_log_model(train_lnT, *params, use_energy=use_energy)
+            - f_log_model(
+                train_lnT,
+                *manual_params,
+                use_energy=use_energy,
+                decay_10=manual_energy[0],
+                scale_macro=manual_energy[1],
+                scale_micro=manual_energy[2],
+            )
         )
         forecast_frames.append(pd.DataFrame({
             "Date origine": pd.to_datetime(dates[train_end_idx - 1]),
             "Date": pd.to_datetime(dates[train_end_idx:projection_end_idx]),
             "Prix projeté LPPL": np.exp(
-                f_log_model(forecast_lnT, *params, use_energy=use_energy)
+                f_log_model(
+                    forecast_lnT,
+                    *manual_params,
+                    use_energy=use_energy,
+                    decay_10=manual_energy[0],
+                    scale_macro=manual_energy[1],
+                    scale_micro=manual_energy[2],
+                )
             ),
             "Prix réel": np.exp(log_prices[train_end_idx:projection_end_idx]),
             "Sigma résiduel": train_residual_std,
             "Phase angulaire": (
-                (params[3] * forecast_lnT) % (2 * np.pi)
+                (manual_params[3] * forecast_lnT) % (2 * np.pi)
             ) * (180 / np.pi),
         }))
 
@@ -2453,13 +2312,15 @@ with tab_overview:
   st.markdown("---")
   st.subheader("Répartition des prix projetés à 3 ans — walk-forward selon la phase angulaire")
   st.caption(
-      "Ce tableau reprend les prévisions OOS générées sur tout l'historique : le modèle est "
-      "réajusté sur les trois années précédentes tous les six mois, puis projeté jusqu'à trois ans. "
+      "Ce tableau reprend les projections historiques générées avec les paramètres manuels actifs, "
+      "appliqués sur des fenêtres de trois ans et sans réajustement automatique. "
       "Chaque colonne donne la fréquence relative des prix projetés dans une phase angulaire de 15°."
   )
   walk_forward_projections = generate_walk_forward_price_projections(
       df, train_window_days=1095, refit_step_days=180, projection_horizon_days=1095,
       use_energy=use_energy,
+      lppl_params=(A, B, C1, omega, phi1, C2, phi2),
+      energy_params=(energy_decay_10, energy_scale_macro, energy_scale_micro),
   )
   if walk_forward_projections.empty:
       st.info("Données historiques insuffisantes pour construire les projections walk-forward à trois ans.")
@@ -3746,6 +3607,8 @@ with tab_forecast:
       step_days=int(rwf_step),
       horizon_days=int(rwf_horizon),
       use_energy=use_energy,
+      lppl_params=(A, B, C1, omega, phi1, C2, phi2),
+      energy_params=(energy_decay_10, energy_scale_macro, energy_scale_micro),
   )
 
   with col_rwf_chart:
