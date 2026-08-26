@@ -2,7 +2,6 @@ from datetime import timedelta
 import json
 import numpy as np
 import pandas as pd
-import plotly.figure_factory as ff
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from scipy.signal import find_peaks, periodogram
@@ -3879,15 +3878,19 @@ with tab_forecast:
       x_range = np.linspace(res_pct_clean.min(), res_pct_clean.max(), 500)
       y_student = t.pdf(x_range, df_t, loc=loc_t, scale=scale_t)
 
-      fig_dist = ff.create_distplot(
-          [res_pct_clean],
-          [f"Résidus du Modèle (%) [{dist_mode_label}]"],
-          bin_size=1.0,
-          show_hist=True,
-          show_curve=False,
-          show_rug=False,
+      # Histogramme natif Plotly : create_distplot est incompatible avec
+      # certaines combinaisons récentes de Plotly et NumPy sur Streamlit Cloud.
+      fig_dist = go.Figure()
+      fig_dist.add_trace(
+          go.Histogram(
+              x=res_pct_clean,
+              name=f"Résidus du Modèle (%) [{dist_mode_label}]",
+              histnorm="probability density",
+              xbins=dict(size=1.0),
+              marker=dict(color="#1f77b4"),
+              opacity=0.78,
+          )
       )
-      fig_dist.data[0].marker.color = "#1f77b4"
       fig_dist.add_trace(
           go.Scatter(
               x=x_range,
@@ -3902,6 +3905,7 @@ with tab_forecast:
           height=400,
           margin=dict(l=20, r=20, t=30, b=20),
           legend=dict(orientation="h", y=1.15, x=0.5, xanchor="center"),
+          bargap=0.04,
           xaxis_title="Erreur de prévision / Résidu (%)",
           yaxis_title="Densité de probabilité",
       )
