@@ -28540,6 +28540,40 @@ PRECOMPUTED_WALK_FORWARD_CSV_B64 = (
     'LTA4LTI1LDg5Njc1LjcxNDQ0MjcwMjg4LDc4NTY0Ljk3NjU2MjUwMDAxLDAuMTU1MDc3ODk2OTIxNDI3NywzNTkuMTE0MTIwMTUyNDQ4Mg0KMjAyNi0wNS0w'
     'OSwyMDI2LTA4LTI2LDg5Nzc4LjAwNDI5NjQ1Njc1LDc4Mjk1LjUwNzgxMjUsMC4xNTUwNzc4OTY5MjE0Mjc3LDM1OS4xOTA1NDUyNzM4NzA0DQo='
 )
+PRECOMPUTED_ROLLING_WALK_FORWARD_CSV_B64 = (
+    'RGF0ZSBFdmFsdWF0aW9uLFJNU0UgT3V0LU9mLVNhbXBsZSAoJSksTUFFIE91dC1PZi1TYW1wbGUgKCUpDQoyMDEyLTA3LTE2LDQ0LjAxMjkwOTQ0NzI5NjM2'
+    'NiwyOS41NjEyNDQwNTg1NjI3OTYNCjIwMTItMTAtMTQsMjguNjI1NzA0MzQ5Mjk1NSwxOS4wNjE3MTg2NzE3MzA2Mw0KMjAxMy0wMS0xMiw2NS40NDIwNDQ0'
+    'NTE1NTgzMiw0Ny4yNjU4OTI3NTM0OTM4NjYNCjIwMTMtMDQtMTIsMTI2LjU4Mzc2MTczNzM2MTM5LDgzLjEwNzUxNjU4MDU2OTA1DQoyMDEzLTA3LTExLDIw'
+    'Ni40NDUwNTY1NjUyOTUzNywxNjAuNTQ1NDA2Njg5MDc1ODYNCjIwMTMtMTAtMDksMTUyLjk1Nzk3ODA0MjU0NjA3LDEyOS45MTMxMTIyNTI5NDY1DQoyMDE0'
+    'LTAxLTA3LDgxLjg5MTgzOTEyNzMwMTc4LDU4LjA4Nzg2MjU5ODcyODINCjIwMTQtMDQtMDcsMTIyLjQ2MzcwNjk3NTY2NTEsOTAuNTk1MDIxMDc5MzI1MTUN'
+    'CjIwMTQtMDctMDYsMTY1LjA4NzE3NTU1NDM5MDgsMTM1LjU4MjY0Mzc4OTI0OTEyDQoyMDE0LTEwLTA0LDE5Ny42MTczMzg5MzQ2MDg1NCwxNzcuMzUzNzAy'
+    'NTMxNTQyMzUNCjIwMTUtMDEtMDIsODQuNjg3MDI5MjA1ODE5MzksNjMuNTA4NTE0NzA2MzI3ODgNCjIwMTUtMDQtMDIsMjguNjY4NjMxNjcxODQ1NDM2LDIz'
+    'Ljc4OTcwOTQzNDQ3ODcxMw0KMjAxNS0wNy0wMSwzOC40NTI0MzQ2OTMyODMxNDUsMzMuMjY0MzIxNTkxMDcxMDkNCjIwMTUtMDktMjksMzIuNTc3ODU2OTU2'
+    'MTA1MDIsMjguOTY3MDU3NTE2OTAwNjk1DQoyMDE1LTEyLTI4LDI0LjIzMzUzMzU5NDI5MjY3NywxOS4wNzAyMTc2NjMyODk4MjQNCjIwMTYtMDMtMjcsMjUu'
+    'MTU4NjM1NTE4MTM2MTcyLDIxLjIyNjQzMTAzMDc2MDcyDQoyMDE2LTA2LTI1LDMxLjE4OTUwMDU3NzQ1NTAyLDI3LjQ4MjM3ODE0ODE0NzI0OA0KMjAxNi0w'
+    'OS0yMywzNy42MzE0ODE4Mzg5MDMxNSwzMi4zMzQ0MzA4OTAzMTU1OA0KMjAxNi0xMi0yMiw5OS42NDE0MjUwMjU5OTgzMyw2NC45MDAyMDgzMTA5NTgxMw0K'
+    'MjAxNy0wMy0yMiwxNTguNTk5MDMzODUzMDI2NTgsMTIxLjQxNjQ4MTk1MzAwMjg2DQoyMDE3LTA2LTIwLDkyLjA3OTIzNzY0NjQwMDEyLDcxLjE0MzMwNjUx'
+    'NzMxNjA2DQoyMDE3LTA5LTE4LDc1Ljk1NzIxNTg3NzU2MDAzLDU1LjY0OTAwMDgxMDk0MTk3DQoyMDE3LTEyLTE3LDU4LjEzNDkzMTUxNzI1OTE1LDQxLjQ0'
+    'OTYyMjU3OTc5MjAzNQ0KMjAxOC0wMy0xNyw4Mi4xMjExNTkxMzMxNTc0Myw1MC41MzE5MDg5MzYxMjExMg0KMjAxOC0wNi0xNSwxMzcuNDAxNzIyNDk2MTI5'
+    'NDIsMTAwLjg5NzY3NzcyMDQxNzU4DQoyMDE4LTA5LTEzLDE1Ny44NTE3NDYwNDU5OTk4NywxMzguMTg3NTQxNDI5ODM3MTUNCjIwMTgtMTItMTIsOTkuMzk0'
+    'MzYxMzA3MTg4NDksOTMuNjcxMjE0Njc5MDA0NTUNCjIwMTktMDMtMTIsMzMuMjAxNDg4NjEyMzQ1MTMsMjcuNzIwNjc3Nzc2NDM4MTg3DQoyMDE5LTA2LTEw'
+    'LDQ4LjE2MTEzODI0ODI4Mzk0LDQwLjU5OTUzMDk3ODIyNDY2NA0KMjAxOS0wOS0wOCw3Ny41Nzc4NDkxMDg4MjI5NSw2Ni41ODEwMTM5NzUwNzY2Nw0KMjAx'
+    'OS0xMi0wNyw0NC42NjczNjk1NzgzNTc5OCwzNS43MzM0OTAwMDUwOTEwNQ0KMjAyMC0wMy0wNiwyMDguMTQ1NDUyNzAyNjY4NjgsMTQ4LjMwOTc0NjQ1Mjk4'
+    'NjMNCjIwMjAtMDYtMDQsMjgzLjY4MjU1MDc4NTIwNDc0LDIzNC43MzQxMTY5MDUzNTc0NA0KMjAyMC0wOS0wMiwxNTcuNzM3NzQ3NTcyMDM2NzcsMTMyLjcz'
+    'OTkyOTY1OTMwNw0KMjAyMC0xMi0wMSw0Ni40Njc5MzIzNDQxMjg2MDYsMzUuNTQ3MjE4ODUxNjA4NTYNCjIwMjEtMDMtMDEsNzUuOTU1NjM4ODIzMDQwNyw2'
+    'OC4xNjA5OTkxNjQ1MzYzOA0KMjAyMS0wNS0zMCwzOS4yNjk0NjI3MzUzNzQ1LDMzLjk1NzQzNjI5MDA0MDMxDQoyMDIxLTA4LTI4LDQyLjcwNjE5NDk3NDY5'
+    'MTA4LDM4LjYyOTEwODI2ODMyNjk5NQ0KMjAyMS0xMS0yNiw0Ni4wMzUwNDA4NjgzMjMyNjQsMzguNDQ0NjE3NTA4NjI3NA0KMjAyMi0wMi0yNCw3Mi41MTA5'
+    'MzkwMjU2OTIyOCw2MC4wMDI2NDYxMDIwMzI5NA0KMjAyMi0wNS0yNSwxMDMuMzM4ODUxNTcwNjM2NDIsOTYuNTUxNzM5ODMxNjgxNTMNCjIwMjItMDgtMjMs'
+    'NjguMzc0MDEzOTc5ODEzMzYsNjUuMDUwMDY4NTkwMTA2NzYNCjIwMjItMTEtMjEsNDAuOTYwOTcwMjg3NTgwMDU0LDMyLjUxNzc0MzYyNjAwOTYzDQoyMDIz'
+    'LTAyLTE5LDM4Ljc5MTU2OTUyNTYwNjUsMzIuMjYxMzAxNDk5OTYxODI0DQoyMDIzLTA1LTIwLDI1LjQ1Njk3MjE5NzU2ODM1LDIwLjExNDU0OTg1MTI5MzM5'
+    'Nw0KMjAyMy0wOC0xOCwyNC4xOTQzMjgyNjQ3MTkwNTQsMTguOTQ3Mjg5NjAxNjU3ODM2DQoyMDIzLTExLTE2LDIwLjE5Nzc5NTY1NzMzNTg0LDE2LjIwODEx'
+    'NzczNTg0ODc2DQoyMDI0LTAyLTE0LDQ5LjM2Nzk4NjY2OTUzMTg0LDM2LjkzOTkyMTc1OTM5NQ0KMjAyNC0wNS0xNCwyOC42NDg1NjQxODE4ODYyMzYsMjMu'
+    'OTYxMzI4NjY1NTMwMTM2DQoyMDI0LTA4LTEyLDIyLjcxOTA1NTUzNDYwNDc0LDE5Ljk2MDQ5ODc1MTg2NDMyDQoyMDI0LTExLTEwLDYwLjQwNDM0MjI4OTgw'
+    'Njc1Niw1Ny4wOTA5MjY0NjA0NzgwNDUNCjIwMjUtMDItMDgsMTUuODM0Njg4OTUyMDM4NzY4LDEzLjQ2NjA1MDEyOTU1Nzk1DQoyMDI1LTA1LTA5LDI4LjU4'
+    'NzIxNzY2NzQ1NTM1NiwyNS4wNTExMzUyMDE4NjQ4OA0KMjAyNS0wOC0wNyw2OC42NDM3MDI1NTMyOTA2OCw1My42NzI0ODkxMjUxMDUxOA0KMjAyNS0xMS0w'
+    'NSwxMDYuMjgwNTk4NDkxOTMxMjMsOTcuNTIxMjU1MTUzODI4MTENCjIwMjYtMDItMDMsMjcuNjIxMDc2MzgwNTg4MzA2LDI1LjUzOTk3NTUwNTIxMzgwNw0K'
+    'MjAyNi0wNS0wNCw4LjkyMTcxNzgwNDk0Mjg4Nyw2Ljc4MjI3MTkxMzg4OTQ0OA0K'
+)
 WALK_FORWARD_REQUIRED_COLUMNS = {
     "Date origine",
     "Date",
@@ -28561,6 +28595,26 @@ def load_embedded_walk_forward():
     return pd.DataFrame()
   data["Date origine"] = pd.to_datetime(data["Date origine"])
   data["Date"] = pd.to_datetime(data["Date"])
+  return data
+
+
+@st.cache_data
+def load_embedded_rolling_walk_forward():
+  """Charge l'analyse de stabilité intégrée au fichier principal Cloud."""
+  if PRECOMPUTED_ROLLING_WALK_FORWARD_CSV_B64 is None:
+    return pd.DataFrame()
+  csv_content = base64.b64decode(
+      PRECOMPUTED_ROLLING_WALK_FORWARD_CSV_B64
+  ).decode("utf-8")
+  data = pd.read_csv(io.StringIO(csv_content))
+  required_columns = {
+      "Date Evaluation",
+      "RMSE Out-Of-Sample (%)",
+      "MAE Out-Of-Sample (%)",
+  }
+  if not required_columns.issubset(data.columns):
+    return pd.DataFrame()
+  data["Date Evaluation"] = pd.to_datetime(data["Date Evaluation"])
   return data
 # ==============================================================================
 # CONFIGURATION DE LA PAGE STREAMLIT
@@ -32125,37 +32179,13 @@ with tab_forecast:
   col_rwf_params, col_rwf_chart = st.columns([1, 3])
 
   with col_rwf_params:
-    rwf_window = st.number_input(
-        "Taille Fenêtre Train (Jours)", value=730, step=180
-    )
-
-    horizon_options = {
-        "3 mois (90 jours)": 90,
-        "6 mois (180 jours)": 180,
-        "1 an (365 jours)": 365,
-        "2 ans (730 jours)": 730,
-        "3 ans (1095 jours)": 1095,
-    }
-    selected_horizon_label = st.selectbox(
-        "Horizon de Test OOS",
-        options=list(horizon_options.keys()),
-        index=2,
-        key="horizon_test_oos_selectbox",
-    )
-    rwf_horizon = horizon_options[selected_horizon_label]
-
-    rwf_step = st.number_input("Pas de Glissement (Jours)", value=90, step=30)
     metric_choice = st.radio("Métrique d'erreur à afficher", ["RMSE", "MAE"])
+    st.caption(
+        "Résultats pré-calculés localement et intégrés à ce main Cloud. "
+        "Ils sont figés jusqu'au prochain export local."
+    )
 
-  df_rwf = run_rolling_walk_forward(
-      df,
-      window_days=int(rwf_window),
-      step_days=int(rwf_step),
-      horizon_days=int(rwf_horizon),
-      use_energy=use_energy,
-      lppl_params=(A, B, C1, omega, phi1, C2, phi2),
-      energy_params=(energy_decay_10, energy_scale_macro, energy_scale_micro),
-  )
+  df_rwf = load_embedded_rolling_walk_forward()
 
   with col_rwf_chart:
     if not df_rwf.empty:
