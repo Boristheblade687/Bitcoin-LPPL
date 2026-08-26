@@ -8,6 +8,7 @@ from plotly.subplots import make_subplots
 from scipy.optimize import differential_evolution, minimize
 from scipy.signal import find_peaks, periodogram
 from scipy.stats import kurtosis, skew, t
+from scipy.stats import norm
 import streamlit as st
 
 try:
@@ -141,8 +142,8 @@ with tab_overview:
       "Écart-type (σ) Power Law",
       min_value=0.5,
       max_value=4.0,
-      value=1.6,
-      step=0.1,
+      value=1.5,
+      step=0.25,
       help=(
           "❓ Multiplicateur d'écart-type (σ) appliqué aux résidus pour tracer"
           " les bandes supérieure et inférieure Power Law."
@@ -937,6 +938,84 @@ with tab_overview:
     return pd.DataFrame(results)
 
 
+  @st.cache_data
+  def generate_walk_forward_price_projections(
+      df_data,
+      train_window_days=1095,
+      refit_step_days=180,
+      projection_horizon_days=1095,
+      use_energy=True,
+  ):
+    """Prévisions LPPL OOS historiques, avec réajustement successif du modèle."""
+    days = df_data["Days"].to_numpy()
+    dates = df_data["Date"].to_numpy()
+    log_prices = df_data["actualLog"].to_numpy()
+    n_samples = len(days)
+    forecast_frames = []
+    start_idx = 0
+
+    bounds = [
+        (-45.0, -25.0), (4.5, 6.8), (0.0, 3.0), (8.0, 9.0),
+        (-np.pi, np.pi), (0.0, 2.0), (-np.pi, np.pi),
+    ]
+    init_guess = [-39.18, 5.845, 0.62, 8.635, -2.11, 0.267, -3.0]
+
+    while start_idx < n_samples:
+      train_end_day = days[start_idx] + train_window_days
+      train_end_idx = np.searchsorted(days, train_end_day)
+      projection_end_day = train_end_day + projection_horizon_days
+      projection_end_idx = np.searchsorted(days, projection_end_day)
+
+      if projection_end_idx > n_samples:
+        break
+      if train_end_idx - start_idx > 200 and projection_end_idx > train_end_idx:
+        train_lnT = np.log(days[start_idx:train_end_idx])
+        train_log_prices = log_prices[start_idx:train_end_idx]
+
+        def loss_func_local(params):
+          return np.mean((
+              train_log_prices
+              - f_log_model(
+                  train_lnT, *params, use_energy=use_energy
+              )
+          ) ** 2)
+
+        result = minimize(
+            loss_func_local, init_guess, bounds=bounds, method="L-BFGS-B"
+        )
+        params = result.x if result.success else np.asarray(init_guess)
+        forecast_days = days[train_end_idx:projection_end_idx]
+        forecast_lnT = np.log(forecast_days)
+        train_residual_std = np.std(
+            train_log_prices
+            - f_log_model(train_lnT, *params, use_energy=use_energy)
+        )
+        forecast_frames.append(pd.DataFrame({
+            "Date origine": pd.to_datetime(dates[train_end_idx - 1]),
+            "Date": pd.to_datetime(dates[train_end_idx:projection_end_idx]),
+            "Prix projeté LPPL": np.exp(
+                f_log_model(forecast_lnT, *params, use_energy=use_energy)
+            ),
+            "Prix réel": np.exp(log_prices[train_end_idx:projection_end_idx]),
+            "Sigma résiduel": train_residual_std,
+            "Phase angulaire": (
+                (params[3] * forecast_lnT) % (2 * np.pi)
+            ) * (180 / np.pi),
+        }))
+
+      next_start_idx = np.searchsorted(days, days[start_idx] + refit_step_days)
+      start_idx = max(start_idx + 1, next_start_idx)
+
+    return (
+        pd.concat(forecast_frames, ignore_index=True)
+        if forecast_frames
+        else pd.DataFrame(columns=[
+            "Date origine", "Date", "Prix projeté LPPL", "Prix réel",
+            "Sigma résiduel", "Phase angulaire",
+        ])
+    )
+
+
   # ==============================================================================
   # 7. PROJECTIONS & GRAPHIQUE PRINCIPAL
   # ==============================================================================
@@ -1065,11 +1144,101 @@ with tab_overview:
     x_lppl_all = df["Date"].tolist() + future_dates_arr
     xaxis_title = "Date"
 
+  hover_dates_all = pd.concat(
+      [df["Date"].reset_index(drop=True), pd.Series(future_dates_arr)],
+      ignore_index=True,
+  ).dt.strftime("%d/%m/%Y")
+
   all_pl_trend = df["trendPrice"].tolist() + list(future_pl_trend)
   all_pl_upper = df["trendUpperPrice"].tolist() + list(future_pl_upper)
   all_pl_lower = df["trendLowerPrice"].tolist() + list(future_pl_lower)
 
   proj_lppl = [df["modelPrice"].iloc[-1]] + list(future_lppl)
+
+  # Probabilités historiques par tranche σ LPPL et phase angulaire (15°).
+  probability_angle_bins = np.arange(0, 361, 15)
+  probability_angle_labels = [
+      f"{start}°–{end}°"
+      for start, end in zip(probability_angle_bins[:-1], probability_angle_bins[1:])
+  ]
+  probability_sigma_edges = np.arange(-3.0, 3.01, 0.5)
+  probability_sigma_labels = (
+      ["≤ -3.0σ"]
+      + [
+          f"{lower:.1f}–{upper:.1f}σ"
+          for lower, upper in zip(
+              probability_sigma_edges[:-1], probability_sigma_edges[1:]
+          )
+      ]
+      + ["≥ 3.0σ"]
+  )
+  probability_sigma_bands = pd.cut(
+      df["z_score"],
+      bins=[-np.inf, *probability_sigma_edges, np.inf],
+      labels=probability_sigma_labels,
+      right=False,
+      include_lowest=True,
+  )
+  historical_probability_angles = pd.cut(
+      ((omega * df["lnT"]) % (2 * np.pi)) * (180 / np.pi),
+      bins=probability_angle_bins,
+      labels=probability_angle_labels,
+      include_lowest=True,
+  )
+  probability_matrix = pd.crosstab(
+      probability_sigma_bands, historical_probability_angles
+  ).reindex(
+      index=probability_sigma_labels,
+      columns=probability_angle_labels,
+      fill_value=0,
+  )
+  probability_matrix = probability_matrix.div(
+      probability_matrix.sum(axis=0).replace(0, np.nan), axis=1
+  ).fillna(0)
+  future_probability_angles = pd.Series(
+      pd.cut(
+          ((omega * future_lnT_arr) % (2 * np.pi)) * (180 / np.pi),
+          bins=probability_angle_bins,
+          labels=probability_angle_labels,
+          include_lowest=True,
+      )
+  )
+  max_probability_by_angle = probability_matrix.max(axis=0).clip(lower=0.01)
+  historical_angle_max_probability = historical_probability_angles.astype("object").map(
+      max_probability_by_angle
+  ).fillna(0.01).to_numpy(dtype=float)
+  future_angle_max_probability = future_probability_angles.astype("object").map(
+      max_probability_by_angle
+  ).fillna(0.01).to_numpy(dtype=float)
+  combined_angle_max_probability = np.concatenate(
+      [historical_angle_max_probability, future_angle_max_probability]
+  )
+  probability_band_labels = {
+      1.0: {"upper": "0.5–1.0σ", "lower": "-1.0–-0.5σ"},
+      2.0: {"upper": "1.5–2.0σ", "lower": "-2.0–-1.5σ"},
+      3.0: {"upper": "2.5–3.0σ", "lower": "-3.0–-2.5σ"},
+  }
+  low_probability_cutoff = 0.01
+  probability_color_states = {}
+  for multiplier, sigma_labels_by_side in probability_band_labels.items():
+      probability_color_states[multiplier] = {}
+      for side, sigma_label in sigma_labels_by_side.items():
+          probability_by_angle = probability_matrix.loc[sigma_label]
+          historical_probability = historical_probability_angles.astype("object").map(
+              probability_by_angle
+          ).fillna(0).to_numpy(dtype=float)
+          future_probability = future_probability_angles.astype("object").map(
+              probability_by_angle
+          ).fillna(0).to_numpy(dtype=float)
+          relative_probability = np.clip(
+              np.concatenate([historical_probability, future_probability])
+              / combined_angle_max_probability,
+              0,
+              1,
+          )
+          probability_color_states[multiplier][side] = (
+              relative_probability < low_probability_cutoff
+          )
 
   fig = make_subplots(
       rows=2,
@@ -1102,9 +1271,9 @@ with tab_overview:
 
   if show_lppl:
     sigma_levels = [
-        {"mult": 1.0, "opacity": 0.18, "name": "Canal ±1.0σ (68%)"},
-        {"mult": 2.0, "opacity": 0.10, "name": "Canal ±2.0σ (95%)"},
-        {"mult": 3.0, "opacity": 0.05, "name": "Canal ±3.0σ (99.7%)"},
+        {"mult": 1.0, "opacity": 0.18, "name": "Intervalle de confiance LPPL ±1.0σ"},
+        {"mult": 2.0, "opacity": 0.10, "name": "Intervalle de confiance LPPL ±2.0σ"},
+        {"mult": 3.0, "opacity": 0.05, "name": "Intervalle de confiance LPPL ±3.0σ"},
     ]
 
     for band in sigma_levels:
@@ -1116,30 +1285,71 @@ with tab_overview:
 
       comp_upper = list(hist_upper) + list(fut_upper)
       comp_lower = list(hist_lower) + list(fut_lower)
+      inner_m = m - 1.0
+      hist_upper_inner = df["modelPrice"] * np.exp(inner_m * res_std_log)
+      hist_lower_inner = df["modelPrice"] / np.exp(inner_m * res_std_log)
+      fut_upper_inner = future_lppl * np.exp(inner_m * dynamic_uncertainty)
+      fut_lower_inner = future_lppl / np.exp(inner_m * dynamic_uncertainty)
+      comp_upper_inner = list(hist_upper_inner) + list(fut_upper_inner)
+      comp_lower_inner = list(hist_lower_inner) + list(fut_lower_inner)
 
-      fig.add_trace(
-          go.Scatter(
-              x=x_lppl_all + x_lppl_all[::-1],
-              y=comp_upper + comp_lower[::-1],
-              fill="toself",
-              fillcolor=f"rgba(255, 153, 0, {band['opacity']})",
-              line=dict(color="rgba(255,255,255,0)"),
-              hoverinfo="skip",
-              name=band["name"],
-          ),
-          row=1,
-          col=1,
-      )
+      legend_shown = False
+      for side, outer_values, inner_values in [
+          ("upper", comp_upper, comp_upper_inner),
+          ("lower", comp_lower, comp_lower_inner),
+      ]:
+        probability_color_state = probability_color_states[m][side]
+        probability_change = np.r_[True, np.diff(probability_color_state) != 0]
+        segment_starts = np.flatnonzero(probability_change)
+        segment_ends = np.r_[segment_starts[1:], len(probability_color_state)]
+        for start, end in zip(segment_starts, segment_ends):
+          fillcolor = (
+              "rgba(244, 63, 94, 0.22)"
+              if probability_color_state[start]
+              else (
+                  "rgba(241, 245, 249, 0.22)"
+                  if m == 1.0
+                  else f"rgba(148, 163, 184, {band['opacity']})"
+              )
+          )
+          segment = range(start, end)
+          x_segment = [x_lppl_all[i] for i in segment]
+          outer_segment = [outer_values[i] for i in segment]
+          inner_segment = [inner_values[i] for i in segment]
+          y_values = (
+              outer_segment + inner_segment[::-1]
+              if side == "upper"
+              else inner_segment + outer_segment[::-1]
+          )
+          fig.add_trace(
+              go.Scatter(
+                  x=x_segment + x_segment[::-1],
+                  y=y_values,
+                  fill="toself",
+                  fillcolor=fillcolor,
+                  line=dict(color="rgba(255,255,255,0)"),
+                  hoverinfo="skip",
+                  name=band["name"],
+                  showlegend=m == 1.0 and not legend_shown,
+              ),
+              row=1,
+              col=1,
+          )
+          legend_shown = True
 
-      if m == 2.0:
+      if m == 1.0:
+        # Tracés de survol transparents : les limites ±1σ restent lisibles sans ajouter de contour visuel.
         fig.add_trace(
             go.Scatter(
                 x=x_lppl_all,
                 y=comp_upper,
                 mode="lines",
-                line=dict(color="rgba(255, 153, 0, 0.6)", width=1, dash="dash"),
+                line=dict(color="rgba(241,245,249,0.001)", width=8),
                 showlegend=False,
-                hoverinfo="skip",
+                customdata=hover_dates_all,
+                hovertemplate=(
+                    "Date : %{customdata}<br>Bande LPPL +1σ : $%{y:,.2f}<extra></extra>"
+                ),
             ),
             row=1,
             col=1,
@@ -1149,9 +1359,47 @@ with tab_overview:
                 x=x_lppl_all,
                 y=comp_lower,
                 mode="lines",
-                line=dict(color="rgba(255, 153, 0, 0.6)", width=1, dash="dash"),
+                line=dict(color="rgba(241,245,249,0.001)", width=8),
                 showlegend=False,
-                hoverinfo="skip",
+                customdata=hover_dates_all,
+                hovertemplate=(
+                    "Date : %{customdata}<br>Bande LPPL −1σ : $%{y:,.2f}<extra></extra>"
+                ),
+            ),
+            row=1,
+            col=1,
+        )
+
+      if m == 2.0:
+        fig.add_trace(
+            go.Scatter(
+                x=x_lppl_all,
+                y=comp_upper,
+                mode="lines",
+                line=dict(color="rgba(148, 163, 184, 0.65)", width=1, dash="dash"),
+                name="Limites LPPL ±2σ",
+                legendgroup="lppl_2sigma",
+                showlegend=True,
+                customdata=hover_dates_all,
+                hovertemplate=(
+                    "Date : %{customdata}<br>Bande LPPL +2σ : $%{y:,.2f}<extra></extra>"
+                ),
+            ),
+            row=1,
+            col=1,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=x_lppl_all,
+                y=comp_lower,
+                mode="lines",
+                line=dict(color="rgba(148, 163, 184, 0.65)", width=1, dash="dash"),
+                legendgroup="lppl_2sigma",
+                showlegend=False,
+                customdata=hover_dates_all,
+                hovertemplate=(
+                    "Date : %{customdata}<br>Bande LPPL −2σ : $%{y:,.2f}<extra></extra>"
+                ),
             ),
             row=1,
             col=1,
@@ -1162,9 +1410,14 @@ with tab_overview:
                 x=x_lppl_all,
                 y=comp_upper,
                 mode="lines",
-                line=dict(color="rgba(255, 153, 0, 0.2)", width=1, dash="dashdot"),
-                showlegend=False,
-                hoverinfo="skip",
+                line=dict(color="rgba(148, 163, 184, 0.35)", width=1, dash="dashdot"),
+                name="Limites LPPL ±3σ",
+                legendgroup="lppl_3sigma",
+                showlegend=True,
+                customdata=hover_dates_all,
+                hovertemplate=(
+                    "Date : %{customdata}<br>Bande LPPL +3σ : $%{y:,.2f}<extra></extra>"
+                ),
             ),
             row=1,
             col=1,
@@ -1174,13 +1427,29 @@ with tab_overview:
                 x=x_lppl_all,
                 y=comp_lower,
                 mode="lines",
-                line=dict(color="rgba(255, 153, 0, 0.2)", width=1, dash="dashdot"),
+                line=dict(color="rgba(148, 163, 184, 0.35)", width=1, dash="dashdot"),
+                legendgroup="lppl_3sigma",
                 showlegend=False,
-                hoverinfo="skip",
+                customdata=hover_dates_all,
+                hovertemplate=(
+                    "Date : %{customdata}<br>Bande LPPL −3σ : $%{y:,.2f}<extra></extra>"
+                ),
             ),
             row=1,
             col=1,
         )
+    fig.add_trace(
+        go.Scatter(
+            x=[None],
+            y=[None],
+            mode="lines",
+            name="Zone rouge : fréquence historique LPPL faible (moins de 1 %)",
+            line=dict(color="#F43F5E", width=8),
+            hoverinfo="skip",
+        ),
+        row=1,
+        col=1,
+    )
     fig.add_trace(
         go.Scatter(
             x=x_hist,
@@ -1228,6 +1497,11 @@ with tab_overview:
           mode="lines",
           name=f"Power Law Top Band (+{pl_sigma_upper}σ)",
           line=dict(color="#38BDF8", width=1, dash="dash"),
+          customdata=hover_dates_all,
+          hovertemplate=(
+              f"Date : %{{customdata}}<br>Power Law +{pl_sigma_upper:g}σ : "
+              "$%{y:,.2f}<extra></extra>"
+          ),
       ),
       row=1,
       col=1,
@@ -1239,6 +1513,11 @@ with tab_overview:
           mode="lines",
           name=f"Power Law Floor Band (-{pl_sigma_lower}σ)",
           line=dict(color="#38BDF8", width=1, dash="dash"),
+          customdata=hover_dates_all,
+          hovertemplate=(
+              f"Date : %{{customdata}}<br>Power Law −{pl_sigma_lower:g}σ : "
+              "$%{y:,.2f}<extra></extra>"
+          ),
       ),
       row=1,
       col=1,
@@ -1493,7 +1772,6 @@ with tab_overview:
           bgcolor="rgba(0,0,0,0.5)",
       ),
   )
-
   # ==============================================================================
   # 8. DASHBOARD & MÉTRIQUES COMPLÈTES
   # ==============================================================================
@@ -1535,6 +1813,8 @@ with tab_overview:
       st.markdown("""
           * **Prix BTC (Gris)** : Cours de clôture quotidien du Bitcoin.
           * **LPPL Model (Orange)** : Courbe ajustée du modèle LPPL sélectionné.
+          * **Intervalles de confiance LPPL** : Les bandes ±2σ et ±3σ sont bleu-gris ; la bande centrale ±1σ est plus claire, presque blanche, pour renforcer le contraste autour du modèle.
+          * **Coloration de probabilité** : Les segments 0–1σ, 1–2σ et 2–3σ sont évalués séparément au-dessus (σ positif) et au-dessous (σ négatif) du modèle. Ils sont rouges sous 1 % de la tranche dominante de la même phase angulaire.
           * **Power Law Fit (Bleu Cyan)** : Tendance fondamentale A + B * ln(t).
           * **Quadrillage Oméga (Lignes et angles)** : Marqueurs angulaires de cycle log-périodique.
           * **Z-Scores (Panneau Inférieur)** : Écarts normalisés du prix réel par rapport au modèle LPPL et à la Power Law.
@@ -1616,6 +1896,851 @@ with tab_overview:
       c_m5.metric("OOS RMSE (1Y)", f"{wf_rmse_1y_val:.1f}%")
       c_m6.metric("Ratio Out/In", f"{gen_ratio:.2f}x")
 
+
+  # ==============================================================================
+  # 8. VUE COURT TERME : PROJECTION CONDITIONNÉE PAR LA PHASE
+  # ==============================================================================
+  st.markdown("---")
+  st.subheader("🔎 Projection LPPL court terme — phase angulaire & incertitude OOS")
+  st.caption(
+      "Vue quotidienne conçue pour les horizons courts : elle combine la trajectoire LPPL, "
+      "les erreurs walk-forward et la fréquence historique des écarts au modèle dans chaque "
+      "phase angulaire. C'est une distribution probabiliste, pas un signal de trading."
+  )
+  short_term_control_horizon, short_term_control_history = st.columns(2)
+  with short_term_control_horizon:
+    short_term_horizon_days = st.select_slider(
+        "Horizon de projection (3 mois à 1 an)",
+        options=[90, 120, 150, 180, 210, 240, 270, 300, 330, 365],
+        value=180,
+        format_func=lambda days: "1 an" if days == 365 else f"{days // 30} mois",
+        help=(
+            "Nombre de jours projetés. Les bandes utilisent l'incertitude walk-forward "
+            "et les fréquences historiques par phase angulaire."
+        ),
+    )
+  with short_term_control_history:
+    short_term_lookback_days = st.select_slider(
+        "Historique affiché",
+        options=[90, 180, 365, 730],
+        value=180,
+        format_func=lambda days: f"{days} jours",
+        help="Nombre de jours historiques affichés avant le début de la projection.",
+    )
+
+  short_term_days = min(short_term_horizon_days, len(future_lppl))
+  short_term_history = df.tail(short_term_lookback_days).copy()
+  short_term_sigma_centers = np.array(
+      [-3.0]
+      + [
+          (lower + upper) / 2
+          for lower, upper in zip(
+              probability_sigma_edges[:-1], probability_sigma_edges[1:]
+          )
+      ]
+      + [3.0]
+  )
+
+  def phase_conditioned_quantiles(model_price, uncertainty, phase_label):
+      """Quantiles discrets pondérés par les écarts LPPL historiques de la phase."""
+      sigma_weights = probability_matrix[phase_label].to_numpy(dtype=float)
+      scenario_prices = model_price * np.exp(short_term_sigma_centers * uncertainty)
+      order = np.argsort(scenario_prices)
+      scenario_prices = scenario_prices[order]
+      sigma_weights = sigma_weights[order]
+      total_weight = sigma_weights.sum()
+      if total_weight <= 0:
+          return np.quantile(scenario_prices, [0.10, 0.25, 0.50, 0.75, 0.90])
+      cumulative_weights = np.cumsum(sigma_weights) - 0.5 * sigma_weights
+      return np.interp(
+          [0.10, 0.25, 0.50, 0.75, 0.90],
+          cumulative_weights / total_weight,
+          scenario_prices,
+      )
+
+  current_phase_label = str(historical_probability_angles.iloc[-1])
+  short_term_quantile_rows = [
+      phase_conditioned_quantiles(
+          df["modelPrice"].iloc[-1], res_std_log, current_phase_label
+      )
+  ]
+  short_term_phase_labels = [current_phase_label]
+  for day_index in range(short_term_days):
+      future_phase_label = str(future_probability_angles.iloc[day_index])
+      short_term_quantile_rows.append(
+          phase_conditioned_quantiles(
+              future_lppl[day_index],
+              dynamic_uncertainty[day_index],
+              future_phase_label,
+          )
+      )
+      short_term_phase_labels.append(future_phase_label)
+
+  short_term_quantiles = np.asarray(short_term_quantile_rows)
+  short_term_dates = pd.to_datetime(
+      [last_date] + future_dates_arr[:short_term_days]
+  )
+  short_term_central = np.r_[df["modelPrice"].iloc[-1], future_lppl[:short_term_days]]
+  short_term_hover = np.column_stack([
+      short_term_phase_labels,
+      short_term_quantiles[:, 2],
+  ])
+
+  fig_short_term = go.Figure()
+  fig_short_term.add_trace(
+      go.Scatter(
+          x=short_term_history["Date"],
+          y=short_term_history["Close"],
+          mode="lines",
+          name="Prix BTC observé",
+          line=dict(color="#CBD5E1", width=2),
+          hovertemplate="Date : %{x|%d/%m/%Y}<br>Prix BTC : $%{y:,.0f}<extra></extra>",
+      )
+  )
+  fig_short_term.add_trace(
+      go.Scatter(
+          x=short_term_history["Date"],
+          y=short_term_history["modelPrice"],
+          mode="lines",
+          name="LPPL ajusté",
+          line=dict(color="#F59E0B", width=1.6),
+          hovertemplate="Date : %{x|%d/%m/%Y}<br>LPPL ajusté : $%{y:,.0f}<extra></extra>",
+      )
+  )
+  fig_short_term.add_trace(
+      go.Scatter(
+          x=short_term_dates,
+          y=short_term_quantiles[:, 4],
+          mode="lines",
+          line=dict(color="rgba(59,130,246,0)", width=0),
+          showlegend=False,
+          hoverinfo="skip",
+      )
+  )
+  fig_short_term.add_trace(
+      go.Scatter(
+          x=short_term_dates,
+          y=short_term_quantiles[:, 0],
+          mode="lines",
+          name="Intervalle conditionnel 80 %",
+          line=dict(color="rgba(59,130,246,0)", width=0),
+          fill="tonexty",
+          fillcolor="rgba(59,130,246,0.22)",
+          customdata=short_term_hover,
+          hovertemplate=(
+              "Date : %{x|%d/%m/%Y}<br>Phase : %{customdata[0]}<br>"
+              "Borne basse (80 %) : $%{y:,.0f}<extra></extra>"
+          ),
+      )
+  )
+  fig_short_term.add_trace(
+      go.Scatter(
+          x=short_term_dates,
+          y=short_term_quantiles[:, 1],
+          mode="lines",
+          line=dict(color="rgba(14,165,233,0)", width=0),
+          showlegend=False,
+          hoverinfo="skip",
+      )
+  )
+  fig_short_term.add_trace(
+      go.Scatter(
+          x=short_term_dates,
+          y=short_term_quantiles[:, 3],
+          mode="lines",
+          name="Intervalle conditionnel 50 %",
+          line=dict(color="rgba(14,165,233,0)", width=0),
+          fill="tonexty",
+          fillcolor="rgba(14,165,233,0.25)",
+          customdata=short_term_hover,
+          hovertemplate=(
+              "Date : %{x|%d/%m/%Y}<br>Phase : %{customdata[0]}<br>"
+              "Borne haute (50 %) : $%{y:,.0f}<extra></extra>"
+          ),
+      )
+  )
+  fig_short_term.add_trace(
+      go.Scatter(
+          x=short_term_dates,
+          y=short_term_quantiles[:, 2],
+          mode="lines",
+          name="Médiane conditionnelle",
+          line=dict(color="#38BDF8", width=2, dash="dot"),
+          customdata=short_term_hover,
+          hovertemplate=(
+              "Date : %{x|%d/%m/%Y}<br>Phase : %{customdata[0]}<br>"
+              "Médiane conditionnelle : $%{y:,.0f}<extra></extra>"
+          ),
+      )
+  )
+  fig_short_term.add_trace(
+      go.Scatter(
+          x=short_term_dates,
+          y=short_term_central,
+          mode="lines",
+          name="Projection centrale LPPL",
+          line=dict(color="#F59E0B", width=2.8, dash="dash"),
+          hovertemplate="Date : %{x|%d/%m/%Y}<br>Projection LPPL : $%{y:,.0f}<extra></extra>",
+      )
+  )
+  fig_short_term.add_trace(
+      go.Scatter(
+          x=[last_date],
+          y=[df["Close"].iloc[-1]],
+          mode="markers",
+          name="Dernier prix BTC",
+          marker=dict(color="#F8FAFC", size=10, line=dict(color="#0F172A", width=2)),
+          hovertemplate="Dernière clôture : $%{y:,.0f}<extra></extra>",
+      )
+  )
+  fig_short_term.update_layout(
+      template="plotly_dark",
+      height=510,
+      margin=dict(l=20, r=20, t=30, b=20),
+      hovermode="x unified",
+      legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+      xaxis=dict(
+          title="Date",
+          range=[
+              last_date - timedelta(days=short_term_lookback_days),
+              future_dates_arr[short_term_days - 1],
+          ],
+          showgrid=True,
+          gridcolor="rgba(148,163,184,0.16)",
+      ),
+      yaxis=dict(
+          title="Prix BTC (USD)",
+          tickprefix="$",
+          tickformat=",.0f",
+          showgrid=True,
+          gridcolor="rgba(148,163,184,0.16)",
+      ),
+  )
+  st.plotly_chart(fig_short_term, use_container_width=True)
+  with st.expander("❓ Méthode et limites — projection court terme"):
+    st.markdown(
+        "* La **projection centrale** prolonge le modèle LPPL avec les paramètres actifs.\n"
+        "* La **médiane conditionnelle** et les intervalles 50 % / 80 % pondèrent les "
+        "écarts LPPL historiques observés dans la phase angulaire correspondante.\n"
+        "* L'ampleur des scénarios augmente avec l'incertitude mesurée en walk-forward. "
+        "Le résultat reste statistique et ne préjuge pas de chocs exogènes ou de liquidité."
+    )
+
+
+# ==============================================================================
+  # 9. AJOUT DU TABLEAU Z-SCORE AVEC MISE EN SURBRILLANCE DE l'ÉCART-TYPE ACTUEL
+  # ==============================================================================
+  st.markdown("---")
+  st.subheader("Récapitulatif des pourcentages selon l'écart-type (σ)")
+
+  z_values = np.arange(0.5, 3.01, 0.5)
+  probabilities = [2 * norm.cdf(z) - 1 for z in z_values]
+
+  df_sigma_table = pd.DataFrame({
+      "Écart-type (σ)": np.round(z_values, 1),
+      "Pourcentage de données incluses": probabilities,
+  })
+  current_sigma = abs(df["z_score"].iloc[-1])
+  displayed_current_sigma = z_values[np.abs(z_values - current_sigma).argmin()]
+
+  # Nombre total de jours historiques passés dans chaque tranche de 0,5 σ LPPL.
+  sigma_bins = np.arange(0, 3.01, 0.5)
+  sigma_labels = [f"{lower:.1f}–{upper:.1f}σ" for lower, upper in zip(sigma_bins[:-1], sigma_bins[1:])]
+  abs_z_scores = df["z_score"].abs()
+  sigma_bands = pd.cut(
+      abs_z_scores,
+      bins=sigma_bins,
+      labels=sigma_labels,
+      include_lowest=True,
+  ).astype("object").fillna("≥ 3.0σ")
+  current_sigma_band = sigma_bands.iloc[-1]
+  # Le tableau de durée se limite aux six tranches de 0 à 3σ ; les valeurs
+  # extrêmes restent disponibles dans les tableaux signés par phase.
+  duration_levels = sigma_labels
+  sigma_band_counts = sigma_bands.value_counts().reindex(duration_levels).fillna(0)
+
+  df_duration_table = pd.DataFrame({
+      "Niveau (σ)": duration_levels,
+      "Temps cumulé": sigma_band_counts.values,
+      "Pourcentage du temps": (sigma_band_counts / len(sigma_bands)).values,
+  })
+
+  # Tranches LPPL signées, réservées aux tableaux par phase : sous- et surévaluation restent distinctes.
+  signed_sigma_edges = np.arange(-3.0, 3.01, 0.5)
+  signed_sigma_levels = (
+      ["≤ -3.0σ"]
+      + [
+          f"{lower:.1f}–{upper:.1f}σ"
+          for lower, upper in zip(signed_sigma_edges[:-1], signed_sigma_edges[1:])
+      ]
+      + ["≥ 3.0σ"]
+  )
+  signed_sigma_display_levels = list(reversed(signed_sigma_levels))
+  signed_sigma_bands = pd.cut(
+      df["z_score"],
+      bins=[-np.inf, *signed_sigma_edges, np.inf],
+      labels=signed_sigma_levels,
+      right=False,
+      include_lowest=True,
+  )
+  current_signed_sigma_band = signed_sigma_bands.iloc[-1]
+
+  def highlight_current(row):
+      # Le tableau étant gradué par 0,25 σ, surligne le seuil le plus proche du sigma réel.
+      is_current = np.isclose(row["Écart-type (σ)"], displayed_current_sigma, atol=1e-5)
+      return ['background-color: #22A9D4; color: black; font-weight: bold;' if is_current else '' for _ in row]
+
+  def highlight_current_duration(row):
+      is_current = row["Niveau (σ)"] == current_sigma_band
+      return ['background-color: #22A9D4; color: black; font-weight: bold;' if is_current else '' for _ in row]
+
+  # En-tête + six tranches utiles : évite l'espace vide sous les tableaux.
+  sigma_summary_table_height = 38 + len(sigma_labels) * 35
+  col_sigma_pct, col_sigma_duration = st.columns(2)
+
+  with col_sigma_pct:
+    current_sigma_display = f"{current_sigma:.1f}".rstrip("0").rstrip(".")
+    st.caption(f"Couverture théorique — σ LPPL actuel : {current_sigma_display}")
+    st.dataframe(
+        df_sigma_table.style
+            .format({
+                "Écart-type (σ)": lambda value: f"{value:g}",
+                "Pourcentage de données incluses": (
+                    lambda value: f"{value * 100:.1f}".rstrip("0").rstrip(".") + "%"
+                ),
+            })
+            .apply(highlight_current, axis=1),
+        use_container_width=True,
+        hide_index=True,
+        height=sigma_summary_table_height,
+    )
+
+  with col_sigma_duration:
+    st.caption("Temps cumulé et part du temps historique — tranches LPPL")
+    st.dataframe(
+        df_duration_table.style
+            .format({
+                "Temps cumulé": "{:.0f} j",
+                "Pourcentage du temps": "{:.2%}",
+            })
+            .apply(highlight_current_duration, axis=1),
+        use_container_width=True,
+        hide_index=True,
+        height=sigma_summary_table_height,
+    )
+
+  st.markdown("---")
+  st.subheader("Répartition des tranches σ LPPL selon la phase angulaire")
+  st.caption(
+      "Chaque colonne totalise 100 % : elle distingue les tranches σ LPPL négatives et positives "
+      "pour un intervalle angulaire de 15°. Le bleu le plus foncé indique la tranche dominante."
+  )
+
+  angle_bins = np.arange(0, 361, 15)
+  angle_labels = [
+      f"{start}°–{end}°" for start, end in zip(angle_bins[:-1], angle_bins[1:])
+  ]
+  cycle_angles = ((omega * df["lnT"]) % (2 * np.pi)) * (180 / np.pi)
+  angle_intervals = pd.cut(
+      cycle_angles,
+      bins=angle_bins,
+      labels=angle_labels,
+      include_lowest=True,
+  )
+  sigma_angle_counts = pd.crosstab(signed_sigma_bands, angle_intervals).reindex(
+      index=signed_sigma_display_levels,
+      columns=angle_labels,
+      fill_value=0,
+  )
+  sigma_angle_percentages = sigma_angle_counts.div(
+      sigma_angle_counts.sum(axis=0).replace(0, np.nan), axis=1
+  ).fillna(0)
+  sigma_angle_percentages.index.name = "Niveau (σ)"
+  current_angle_interval = str(angle_intervals.iloc[-1])
+  sigma_angle_display = sigma_angle_percentages.reset_index()
+
+  st.caption(
+      f"Cellule actuelle encadrée en rouge : {current_signed_sigma_band} à {current_angle_interval}"
+  )
+  angle_maxima = sigma_angle_percentages.max(axis=0).replace(0, 1)
+  angle_table_html = [
+      "<div style='overflow-x:auto'><table style='width:100%;border-collapse:separate;"
+      "border-spacing:0;font-size:0.86rem;text-align:center'>",
+      "<thead><tr><th style='padding:7px;text-align:left'>Niveau (σ)</th>",
+  ]
+  angle_table_html.extend(
+      f"<th style='padding:7px;white-space:nowrap'>{angle_label}</th>"
+      for angle_label in angle_labels
+  )
+  angle_table_html.append("</tr></thead><tbody>")
+  for _, row in sigma_angle_display.iterrows():
+      angle_table_html.append(
+          f"<tr><td style='padding:7px;text-align:left;font-weight:600'>{row['Niveau (σ)']}</td>"
+      )
+      for angle_label in angle_labels:
+          relative_value = row[angle_label] / angle_maxima[angle_label]
+          blue_alpha = 0.12 + 0.58 * relative_value
+          is_current_cell = (
+              row["Niveau (σ)"] == current_signed_sigma_band
+              and angle_label == current_angle_interval
+          )
+          current_cell_style = (
+              "box-shadow:inset 0 0 0 3px #F43F5E;font-weight:700;"
+              if is_current_cell
+              else ""
+          )
+          angle_table_html.append(
+              f"<td style='padding:7px;background-color:rgba(59,130,246,{blue_alpha:.3f});"
+              f"{current_cell_style}'>{row[angle_label]:.1%}</td>"
+          )
+      angle_table_html.append("</tr>")
+  angle_table_html.append("</tbody></table></div>")
+  st.markdown("".join(angle_table_html), unsafe_allow_html=True)
+
+  st.markdown("---")
+  st.subheader("Répartition des prix LPPL projetés sur 3 ans selon la phase angulaire")
+  st.caption(
+      "Chaque colonne indique la probabilité des zones de prix projetées par le modèle LPPL "
+      "sur les trois prochaines années, pour une phase angulaire de 15°. Les probabilités "
+      "historiques des sigmas LPPL signés sont transposées en prix futurs."
+  )
+
+  projection_horizon_days = 3 * 365
+  projection_days = np.arange(last_days + 1, last_days + projection_horizon_days + 1)
+  projection_dates = pd.date_range(
+      last_date + timedelta(days=1), periods=projection_horizon_days, freq="D"
+  )
+  projection_lnT = np.log(projection_days)
+  projection_model_prices = np.exp(
+      f_log_model(
+          projection_lnT, A, B, C1, omega, phi1, C2, phi2, use_energy=use_energy
+      )
+  )
+  projection_relative_days = np.arange(1, projection_horizon_days + 1, dtype=float)
+  projection_uncertainty = np.interp(
+      projection_relative_days, wf_milestone_days, wf_milestone_errs
+  )
+  projection_angle_intervals = pd.Series(
+      pd.cut(
+          ((omega * projection_lnT) % (2 * np.pi)) * (180 / np.pi),
+          bins=angle_bins,
+          labels=angle_labels,
+          include_lowest=True,
+      )
+  )
+  projection_sigma_centers = np.array(
+      [-3.0]
+      + [
+          (lower + upper) / 2
+          for lower, upper in zip(
+              signed_sigma_edges[:-1], signed_sigma_edges[1:]
+          )
+      ]
+      + [3.0]
+  )
+  projection_angle_codes = projection_angle_intervals.cat.codes.to_numpy()
+  projection_period_starts = np.r_[
+      0, np.flatnonzero(np.diff(projection_angle_codes) != 0) + 1
+  ]
+  projection_period_ends = np.r_[projection_period_starts[1:], projection_horizon_days]
+  projection_period_keys = []
+  projection_period_headers = {}
+  projection_period_by_day = np.empty(projection_horizon_days, dtype=object)
+  for period_index, (start, end) in enumerate(
+      zip(projection_period_starts, projection_period_ends)
+  ):
+      period_key = f"period_{period_index}"
+      angle_label = str(projection_angle_intervals.iloc[start])
+      date_start = projection_dates[start].strftime("%d/%m/%y")
+      date_end = projection_dates[end - 1].strftime("%d/%m/%y")
+      projection_period_keys.append(period_key)
+      projection_period_headers[period_key] = (
+          f"{angle_label}<br><span style='font-size:0.72rem'>{date_start} → {date_end}</span>"
+      )
+      projection_period_by_day[start:end] = period_key
+
+  projected_price_values = []
+  projected_price_weights = []
+  projected_price_periods = []
+  for index, angle_label in enumerate(projection_angle_intervals.astype("object")):
+      sigma_probabilities = probability_matrix[angle_label].to_numpy(dtype=float)
+      projected_price_values.extend(
+          projection_model_prices[index]
+          * np.exp(projection_sigma_centers * projection_uncertainty[index])
+      )
+      projected_price_weights.extend(sigma_probabilities)
+      projected_price_periods.extend(
+          [projection_period_by_day[index]] * len(projection_sigma_centers)
+      )
+
+  def format_projected_price(value):
+      if value >= 1_000_000:
+          return f"${value / 1_000_000:.3f}M"
+      if value >= 1_000:
+          return f"${value / 1_000:.2f}k"
+      if value >= 1:
+          return f"${value:,.2f}"
+      return f"${value:.4f}"
+
+  # 24 zones logarithmiques : un compromis entre finesse des fourchettes,
+  # lisibilité et cohérence sur les plusieurs ordres de grandeur BTC.
+  price_zone_edges = np.geomspace(
+      min(projected_price_values), max(projected_price_values), num=25
+  )
+  price_zone_labels = [
+      f"{format_projected_price(lower)}–{format_projected_price(upper)}"
+      for lower, upper in zip(price_zone_edges[:-1], price_zone_edges[1:])
+  ]
+  projected_price_data = pd.DataFrame({
+      "Zone de prix": pd.cut(
+          projected_price_values,
+          bins=price_zone_edges,
+          labels=price_zone_labels,
+          include_lowest=True,
+      ),
+      "Période angulaire": projected_price_periods,
+      "Probabilité": projected_price_weights,
+  })
+  projected_price_probabilities = projected_price_data.groupby(
+      ["Zone de prix", "Période angulaire"], observed=False
+  )["Probabilité"].sum().unstack().reindex(
+      index=price_zone_labels, columns=projection_period_keys, fill_value=0
+  )
+  projected_price_probabilities = projected_price_probabilities.div(
+      projected_price_probabilities.sum(axis=0).replace(0, np.nan), axis=1
+  ).fillna(0)
+  price_zone_maxima = projected_price_probabilities.max(axis=0).replace(0, 1)
+
+  st.caption(
+      "Les colonnes suivent chronologiquement les trois prochaines années. Les 24 zones "
+      "de prix logarithmiques resserrent les fourchettes ; le bleu le plus foncé met en "
+      "avant la zone la plus probable, encadrée en blanc."
+  )
+  price_projection_table_html = [
+      "<div style='overflow-x:auto'><table style='width:100%;border-collapse:separate;"
+      "border-spacing:0;font-size:0.86rem;text-align:center'>",
+      "<thead><tr><th style='padding:7px;text-align:left'>Zone de prix projetée</th>",
+  ]
+  for period_index, period_key in enumerate(projection_period_keys):
+      current_header_style = (
+          "box-shadow:inset 0 0 0 3px #F43F5E;" if period_index == 0 else ""
+      )
+      price_projection_table_html.append(
+          f"<th style='padding:7px;white-space:nowrap;{current_header_style}'>"
+          f"{projection_period_headers[period_key]}</th>"
+      )
+  price_projection_table_html.append("</tr></thead><tbody>")
+  for price_zone in price_zone_labels:
+      price_projection_table_html.append(
+          f"<tr><td style='padding:7px;text-align:left;font-weight:600'>{price_zone}</td>"
+      )
+      for period_key in projection_period_keys:
+          probability = projected_price_probabilities.loc[price_zone, period_key]
+          blue_alpha = 0.12 + 0.58 * (probability / price_zone_maxima[period_key])
+          highest_probability_style = (
+              "box-shadow:inset 0 0 0 3px #FFFFFF;font-weight:700;"
+              if np.isclose(probability, price_zone_maxima[period_key]) else ""
+          )
+          price_projection_table_html.append(
+              f"<td style='padding:7px;background-color:rgba(59,130,246,{blue_alpha:.3f});"
+              f"{highest_probability_style}'>"
+              f"{probability:.1%}</td>"
+          )
+      price_projection_table_html.append("</tr>")
+  price_projection_table_html.append("</tbody></table></div>")
+  st.markdown("".join(price_projection_table_html), unsafe_allow_html=True)
+
+  st.markdown("---")
+  st.subheader("Répartition des prix projetés à 3 ans — walk-forward selon la phase angulaire")
+  st.caption(
+      "Ce tableau reprend les prévisions OOS générées sur tout l'historique : le modèle est "
+      "réajusté sur les trois années précédentes tous les six mois, puis projeté jusqu'à trois ans. "
+      "Chaque colonne donne la fréquence relative des prix projetés dans une phase angulaire de 15°."
+  )
+  walk_forward_projections = generate_walk_forward_price_projections(
+      df, train_window_days=1095, refit_step_days=180, projection_horizon_days=1095,
+      use_energy=use_energy,
+  )
+  if walk_forward_projections.empty:
+      st.info("Données historiques insuffisantes pour construire les projections walk-forward à trois ans.")
+  else:
+      # Une colonne par projection arrivée à son échéance, afin de confronter la distribution
+      # estimée au prix qui s'est effectivement réalisé.
+      walk_forward_terminal = (
+          walk_forward_projections.sort_values("Date")
+          .groupby("Date origine", as_index=False)
+          .tail(1)
+          .sort_values("Date origine")
+          .reset_index(drop=True)
+      )
+      # Inclut toutes les projections arrivées à échéance jusqu'à aujourd'hui,
+      # sans dépasser la dernière observation réellement disponible.
+      walk_forward_cutoff_date = min(
+          pd.Timestamp.today().normalize(), pd.Timestamp(last_date).normalize()
+      )
+      walk_forward_terminal = walk_forward_terminal[
+          walk_forward_terminal["Date"] <= walk_forward_cutoff_date
+      ].reset_index(drop=True)
+      walk_forward_terminal["Phase angulaire"] = pd.cut(
+          walk_forward_terminal["Phase angulaire"],
+          bins=angle_bins,
+          labels=angle_labels,
+          include_lowest=True,
+      )
+      walk_forward_3y_uncertainty = wf_milestone_errs[-1]
+      walk_forward_scenario_prices = []
+      for _, forecast in walk_forward_terminal.iterrows():
+          walk_forward_scenario_prices.extend(
+              forecast["Prix projeté LPPL"]
+              * np.exp(projection_sigma_centers * walk_forward_3y_uncertainty)
+          )
+      walk_forward_price_edges = np.geomspace(
+          min(walk_forward_scenario_prices + walk_forward_terminal["Prix réel"].tolist()),
+          max(walk_forward_scenario_prices + walk_forward_terminal["Prix réel"].tolist()),
+          num=17,
+      )
+      walk_forward_price_labels = [
+          f"{format_projected_price(lower)}–{format_projected_price(upper)}"
+          for lower, upper in zip(
+              walk_forward_price_edges[:-1], walk_forward_price_edges[1:]
+          )
+      ]
+
+      walk_forward_table_html = [
+          "<div style='overflow-x:auto'><table style='width:100%;border-collapse:separate;"
+          "border-spacing:0;font-size:0.86rem;text-align:center'>",
+          "<thead><tr><th style='padding:7px;text-align:left'>Zone de prix projetée</th>",
+      ]
+      terminal_probability_columns = []
+      terminal_actual_zones = []
+      terminal_headers = []
+      for _, forecast in walk_forward_terminal.iterrows():
+          phase_label = str(forecast["Phase angulaire"])
+          sigma_probabilities = probability_matrix[phase_label].to_numpy(dtype=float)
+          scenario_prices = (
+              forecast["Prix projeté LPPL"]
+              * np.exp(projection_sigma_centers * walk_forward_3y_uncertainty)
+          )
+          scenario_zones = pd.cut(
+              scenario_prices,
+              bins=walk_forward_price_edges,
+              labels=walk_forward_price_labels,
+              include_lowest=True,
+          )
+          probability_by_zone = pd.Series(
+              sigma_probabilities, index=scenario_zones
+          ).groupby(level=0, observed=False).sum().reindex(
+              walk_forward_price_labels, fill_value=0
+          )
+          terminal_probability_columns.append(probability_by_zone)
+          terminal_actual_zones.append(str(pd.cut(
+              [forecast["Prix réel"]],
+              bins=walk_forward_price_edges,
+              labels=walk_forward_price_labels,
+              include_lowest=True,
+          )[0]))
+          terminal_headers.append(
+              f"{forecast['Date origine']:%d/%m/%y}<br>→ {forecast['Date']:%d/%m/%y}<br>"
+              f"<span style='font-size:0.72rem'>{phase_label}</span>"
+          )
+      walk_forward_probability_table = pd.concat(
+          terminal_probability_columns, axis=1
+      )
+      walk_forward_probability_maxima = walk_forward_probability_table.max(
+          axis=0
+      ).replace(0, 1)
+
+      st.caption(
+          "Chaque colonne est une projection walk-forward d'environ trois ans. Le cadre rouge "
+          "indique la zone de prix dans laquelle le prix réel est finalement arrivé et le cadre "
+          "blanc la zone la plus probable. Les 16 zones de prix logarithmiques privilégient une "
+          "lecture compacte. La dispersion utilise l'incertitude OOS à trois ans, comme le tableau de "
+          f"projections actuel. Les échéances sont incluses jusqu'au {walk_forward_cutoff_date:%d/%m/%Y}."
+      )
+      walk_forward_table_html.extend(
+          f"<th style='padding:7px;white-space:nowrap'>{header}</th>"
+          for header in terminal_headers
+      )
+      walk_forward_table_html.append("</tr></thead><tbody>")
+      for price_zone in walk_forward_price_labels:
+          walk_forward_table_html.append(
+              f"<tr><td style='padding:7px;text-align:left;font-weight:600'>{price_zone}</td>"
+          )
+          for column_index in range(len(terminal_headers)):
+              probability = walk_forward_probability_table.iloc[
+                  walk_forward_price_labels.index(price_zone), column_index
+              ]
+              cell_borders = []
+              if np.isclose(
+                  probability, walk_forward_probability_maxima.iloc[column_index]
+              ):
+                  cell_borders.append("inset 0 0 0 3px #FFFFFF")
+              if terminal_actual_zones[column_index] == price_zone:
+                  cell_borders.append("inset 0 0 0 6px #F43F5E")
+              cell_style = (
+                  f"box-shadow:{','.join(cell_borders)};font-weight:700;"
+                  if cell_borders else ""
+              )
+              blue_alpha = 0.12 + 0.58 * probability
+              walk_forward_table_html.append(
+                  f"<td style='padding:7px;background-color:rgba(59,130,246,{blue_alpha:.3f});"
+                  f"{cell_style}'>{probability:.1%}</td>"
+              )
+          walk_forward_table_html.append("</tr>")
+      walk_forward_table_html.append("</tbody></table></div>")
+      st.markdown("".join(walk_forward_table_html), unsafe_allow_html=True)
+
+  st.markdown("---")
+  st.subheader("Probabilité directionnelle vers l'intervalle angulaire suivant")
+  st.caption(
+      "Probabilité historique que le prix soit supérieur lors de l'entrée dans l'intervalle "
+      "angulaire suivant, pour chaque combinaison de tranche σ LPPL signée et d'intervalle de 15°. "
+      "Le vert indique une probabilité haussière élevée, le rouge une probabilité faible."
+  )
+
+  directional_angle_bins = np.arange(0, 361, 15)
+  directional_angle_labels = [
+      f"{start}°–{end}°"
+      for start, end in zip(directional_angle_bins[:-1], directional_angle_bins[1:])
+  ]
+  directional_angle_intervals = pd.cut(
+      cycle_angles,
+      bins=directional_angle_bins,
+      labels=directional_angle_labels,
+      include_lowest=True,
+  )
+  directional_angle_codes = directional_angle_intervals.cat.codes.to_numpy()
+  next_interval_indices = np.full(len(df), -1, dtype=int)
+  for source_code in range(len(directional_angle_labels)):
+      source_indices = np.flatnonzero(directional_angle_codes == source_code)
+      target_indices = np.flatnonzero(
+          directional_angle_codes == (source_code + 1) % len(directional_angle_labels)
+      )
+      target_positions = np.searchsorted(target_indices, source_indices + 1)
+      valid_targets = target_positions < len(target_indices)
+      next_interval_indices[source_indices[valid_targets]] = target_indices[
+          target_positions[valid_targets]
+      ]
+
+  close_values = df["Close"].to_numpy(dtype=float)
+  days_values = df["Days"].to_numpy(dtype=float)
+  next_interval_prices = np.full(len(df), np.nan)
+  days_to_next_interval = np.full(len(df), np.nan)
+  has_next_interval = next_interval_indices >= 0
+  next_interval_prices[has_next_interval] = close_values[
+      next_interval_indices[has_next_interval]
+  ]
+  days_to_next_interval[has_next_interval] = (
+      days_values[next_interval_indices[has_next_interval]]
+      - days_values[has_next_interval]
+  )
+  next_interval_velocity = np.where(
+      days_to_next_interval > 0,
+      np.log(next_interval_prices / close_values) * 30 / days_to_next_interval * 100,
+      np.nan,
+  )
+  directional_data = pd.DataFrame({
+      "Niveau (σ)": signed_sigma_bands,
+      "Phase angulaire": directional_angle_intervals,
+      "Hausse vers intervalle suivant": next_interval_prices > close_values,
+      "Vitesse prix vers intervalle suivant (% / 30j)": next_interval_velocity,
+      "Résultat disponible": np.isfinite(next_interval_prices),
+  })
+  directional_data = directional_data[directional_data["Résultat disponible"]]
+  directional_probabilities = directional_data.groupby(
+      ["Niveau (σ)", "Phase angulaire"], observed=False
+  )["Hausse vers intervalle suivant"].mean().unstack().reindex(
+      index=signed_sigma_display_levels, columns=directional_angle_labels
+  )
+  directional_samples = directional_data.groupby(
+      ["Niveau (σ)", "Phase angulaire"], observed=False
+  ).size().unstack().reindex(
+      index=signed_sigma_display_levels, columns=directional_angle_labels, fill_value=0
+  )
+  directional_typical_velocity = directional_data.groupby(
+      ["Niveau (σ)", "Phase angulaire"], observed=False
+  )["Vitesse prix vers intervalle suivant (% / 30j)"].median().unstack().reindex(
+      index=signed_sigma_display_levels, columns=directional_angle_labels
+  )
+  current_directional_angle_interval = str(directional_angle_intervals.iloc[-1])
+  current_directional_angle_code = directional_angle_labels.index(
+      current_directional_angle_interval
+  )
+  current_next_directional_angle_interval = directional_angle_labels[
+      (current_directional_angle_code + 1) % len(directional_angle_labels)
+  ]
+  current_angle_degrees = cycle_angles.iloc[-1]
+  current_lppl_sigma = df["z_score"].iloc[-1]
+  current_price_velocity = (
+      np.log(df["Close"].iloc[-1] / df["Close"].iloc[-31]) * 100
+      if len(df) > 30
+      else np.nan
+  )
+  current_velocity_display = (
+      "—" if pd.isna(current_price_velocity) else f"{current_price_velocity:+.1f}%"
+  )
+
+  st.caption(
+      f"Position actuelle — angle : {current_angle_degrees:.1f}° · "
+      f"sigma LPPL : {current_lppl_sigma:+.2f}σ · "
+      f"vitesse prix : {current_velocity_display}/30j"
+  )
+  st.caption(
+      f"Cellule actuelle encadrée en rouge : {current_signed_sigma_band} à {current_directional_angle_interval}. "
+      f"Intervalle cible : {current_next_directional_angle_interval}. Chaque case affiche la vitesse médiane "
+      "du prix jusqu'à l'intervalle suivant, ramenée à 30 jours, et le nombre d'observations historiques."
+  )
+  directional_table_html = [
+      "<div style='overflow-x:auto'><table style='width:100%;border-collapse:separate;"
+      "border-spacing:0;font-size:0.86rem;text-align:center'>",
+      "<thead><tr><th style='padding:7px;text-align:left'>Niveau (σ)</th>",
+  ]
+  directional_table_html.extend(
+      f"<th style='padding:7px;white-space:nowrap'>{angle_label}<br>"
+      f"<span style='font-size:0.72rem'>→ {directional_angle_labels[(index + 1) % len(directional_angle_labels)]}</span></th>"
+      for index, angle_label in enumerate(directional_angle_labels)
+  )
+  directional_table_html.append("</tr></thead><tbody>")
+  for sigma_level in signed_sigma_display_levels:
+      directional_table_html.append(
+          f"<tr><td style='padding:7px;text-align:left;font-weight:600'>{sigma_level}</td>"
+      )
+      for angle_label in directional_angle_labels:
+          probability = directional_probabilities.loc[sigma_level, angle_label]
+          sample_count = int(directional_samples.loc[sigma_level, angle_label])
+          typical_velocity = directional_typical_velocity.loc[sigma_level, angle_label]
+          velocity_display = "—" if pd.isna(typical_velocity) else f"{typical_velocity:+.1f}%"
+          is_current_cell = (
+              sigma_level == current_signed_sigma_band
+              and angle_label == current_directional_angle_interval
+          )
+          current_cell_style = (
+              "box-shadow:inset 0 0 0 3px #F43F5E;font-weight:700;"
+              if is_current_cell else ""
+          )
+          if pd.isna(probability):
+              cell_text = "—"
+              background_color = "rgba(100,116,139,0.16)"
+          elif probability >= 0.5:
+              intensity = 0.12 + 0.55 * ((probability - 0.5) / 0.5)
+              background_color = f"rgba(34,197,94,{intensity:.3f})"
+              cell_text = (
+                  f"{probability:.1%}<br><span style='font-size:0.72rem'>"
+                  f"v={velocity_display}/30j · n={sample_count}</span>"
+              )
+          else:
+              intensity = 0.12 + 0.55 * ((0.5 - probability) / 0.5)
+              background_color = f"rgba(244,63,94,{intensity:.3f})"
+              cell_text = (
+                  f"{probability:.1%}<br><span style='font-size:0.72rem'>"
+                  f"v={velocity_display}/30j · n={sample_count}</span>"
+              )
+          directional_table_html.append(
+              f"<td style='padding:7px;background-color:{background_color};{current_cell_style}'>{cell_text}</td>"
+          )
+      directional_table_html.append("</tr>")
+  directional_table_html.append("</tbody></table></div>")
+  st.markdown("".join(directional_table_html), unsafe_allow_html=True)
 
 with tab_horloges:
   st.header("Horloges et cycle")
@@ -1896,6 +3021,7 @@ with tab_horloges:
   df["z_velocity"] = df["z_score_pl"].diff(30).fillna(0)
 
   current_phase = df["cycle_phase_deg"].iloc[-1]
+  current_velocity = df["z_velocity"].iloc[-1]
 
   bins = np.arange(0, 370, 10)
   labels = np.arange(5, 365, 10)
@@ -1930,12 +3056,29 @@ with tab_horloges:
       y=0, line_dash="solid", line_color="rgba(255, 255, 255, 0.4)", line_width=1.2
   )
 
+  fig_speed_profile.add_trace(
+      go.Scatter(
+          x=[current_phase],
+          y=[current_velocity],
+          mode="markers",
+          name="Vitesse actuelle",
+          marker=dict(color="#F43F5E", size=12, line=dict(color="#FFFFFF", width=1.5)),
+          hovertemplate=(
+              "Phase actuelle : %{x:.1f}°<br>"
+              "Vitesse actuelle : %{y:+.3f} Δσ / 30j<extra></extra>"
+          ),
+      )
+  )
+
   fig_speed_profile.add_vline(
       x=current_phase,
       line_dash="dash",
       line_color="#F43F5E",
       line_width=2.5,
-      annotation_text=f"Actuel : {current_phase:.1f}°",
+      annotation_text=(
+          f"Actuel : {current_phase:.1f}°<br>"
+          f"Vitesse : {current_velocity:+.3f} Δσ / 30j"
+      ),
       annotation_position="top right",
       annotation_font_color="#F43F5E",
       annotation_font_size=12,
@@ -3563,4 +4706,3 @@ with tab_divers:
       )
     else:
       st.warning("Données de résidus insuffisantes pour l'analyse GARCH.")
-
