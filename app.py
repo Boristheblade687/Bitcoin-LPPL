@@ -31259,7 +31259,8 @@ with tab_overview:
   st.caption(
       f"Cellule actuelle encadrée en rouge : {current_signed_sigma_band} à {current_directional_angle_interval}. "
       f"Intervalle cible : {current_next_directional_angle_interval}. Chaque case affiche la vitesse médiane "
-      "du prix jusqu'à l'intervalle suivant, ramenée à 30 jours, et le nombre d'observations historiques."
+      "du prix jusqu'à l'intervalle suivant, ramenée à 30 jours, et le nombre d'observations historiques. "
+      "Les cellules avec moins de 3 observations sont masquées."
   )
   directional_table_html = [
       "<div style='overflow-x:auto'><table style='width:100%;border-collapse:separate;"
@@ -31281,15 +31282,16 @@ with tab_overview:
           sample_count = int(directional_samples.loc[sigma_level, angle_label])
           typical_velocity = directional_typical_velocity.loc[sigma_level, angle_label]
           velocity_display = "—" if pd.isna(typical_velocity) else f"{typical_velocity:+.1f}%"
+          has_enough_observations = sample_count >= 3
           is_current_cell = (
               sigma_level == current_signed_sigma_band
               and angle_label == current_directional_angle_interval
           )
           current_cell_style = (
               "box-shadow:inset 0 0 0 3px #F43F5E;font-weight:700;"
-              if is_current_cell else ""
+              if is_current_cell and has_enough_observations else ""
           )
-          if pd.isna(probability):
+          if not has_enough_observations or pd.isna(probability):
               cell_text = "—"
               background_color = "rgba(100,116,139,0.16)"
           elif probability >= 0.5:
