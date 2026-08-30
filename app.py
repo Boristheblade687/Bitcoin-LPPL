@@ -30475,8 +30475,113 @@ with tab_overview:
       c_m5.metric("OOS RMSE (1Y)", f"{wf_rmse_1y_val:.1f}%")
       c_m6.metric("Ratio Out/In", f"{gen_ratio:.2f}x")
 
+  st.subheader("Carte historique des zones de valorisation LPPL")
+  st.caption(
+      "La courbe blanche suit le Z-score LPPL ; le profil à droite indique le "
+      "nombre de jours historiques observés dans chaque zone de valorisation."
+  )
+  valuation_zone_edges = np.arange(-4.0, 4.5, 0.5)
+  valuation_zone_centers = (valuation_zone_edges[:-1] + valuation_zone_edges[1:]) / 2
+  valuation_zone_colors = [
+      "#4C1D95", "#4338CA", "#3730A3", "#1D4ED8",
+      "#0369A1", "#0E7490", "#0F766E", "#4D7C0F",
+      "#65A30D", "#A16207", "#CA8A04", "#D97706",
+      "#EA580C", "#DC2626", "#BE123C", "#881337",
+  ]
+  valuation_zone_counts, _ = np.histogram(
+      np.clip(df["z_score"].to_numpy(dtype=float), -4.0, 4.0),
+      bins=valuation_zone_edges,
+  )
+  valuation_zone_percentages = 100.0 * valuation_zone_counts / len(df)
+  valuation_zone_labels = [
+      f"{lower:+.1f} à {upper:+.1f}σ"
+      for lower, upper in zip(valuation_zone_edges[:-1], valuation_zone_edges[1:])
+  ]
+  valuation_colorscale = []
+  for index, color in enumerate(valuation_zone_colors):
+      zone_start = index / len(valuation_zone_colors)
+      zone_end = (index + 1) / len(valuation_zone_colors)
+      valuation_colorscale.extend([(zone_start, color), (zone_end, color)])
 
-  # ==============================================================================
+  fig_valuation_map = make_subplots(
+      rows=1, cols=2, shared_yaxes=True,
+      column_widths=[0.70, 0.30], horizontal_spacing=0.025,
+  )
+  fig_valuation_map.add_trace(
+      go.Heatmap(
+          x=[df["Date"].iloc[0], df["Date"].iloc[-1]],
+          y=valuation_zone_centers,
+          z=np.repeat(
+              (np.arange(len(valuation_zone_colors)) + 0.5)[:, np.newaxis], 2, axis=1
+          ),
+          zmin=0, zmax=len(valuation_zone_colors),
+          colorscale=valuation_colorscale, showscale=False,
+          hoverinfo="skip", opacity=0.68,
+      ),
+      row=1, col=1,
+  )
+  fig_valuation_map.add_trace(
+      go.Scatter(
+          x=df["Date"], y=df["z_score"], mode="lines", name="Z-score LPPL",
+          line=dict(color="#F8FAFC", width=1.5),
+          hovertemplate="Date : %{x|%d/%m/%Y}<br>Z-score LPPL : %{y:+.2f}σ<extra></extra>",
+      ),
+      row=1, col=1,
+  )
+  fig_valuation_map.add_trace(
+      go.Scatter(
+          x=[df["Date"].iloc[-1]], y=[df["z_score"].iloc[-1]],
+          mode="markers", name="Niveau actuel",
+          marker=dict(color="#F59E0B", size=9, line=dict(color="#FEF3C7", width=1)),
+          hovertemplate="Niveau actuel<br>%{x|%d/%m/%Y}<br>%{y:+.2f}σ<extra></extra>",
+      ),
+      row=1, col=1,
+  )
+  fig_valuation_map.add_trace(
+      go.Bar(
+          x=valuation_zone_counts, y=valuation_zone_centers, orientation="h", width=0.44,
+          marker=dict(color=valuation_zone_colors, line=dict(color="#0F172A", width=0.4)),
+          text=[f"{percentage:.1f}%" if count else "" for count, percentage in zip(
+              valuation_zone_counts, valuation_zone_percentages
+          )],
+          texttemplate="%{text}", textposition="outside",
+          textfont=dict(size=13, color="#F8FAFC"), cliponaxis=False,
+          customdata=[
+              f"Zone : {label}<br>Observations : {count:,}<br>Part historique : {percentage:.1f}%"
+              for label, count, percentage in zip(
+                  valuation_zone_labels, valuation_zone_counts, valuation_zone_percentages
+              )
+          ],
+          name="Jours par zone", hovertemplate="%{customdata}<extra></extra>",
+      ),
+      row=1, col=2,
+  )
+  for column in (1, 2):
+      fig_valuation_map.add_hline(
+          y=0, line_color="rgba(255,255,255,0.55)", line_width=1, row=1, col=column
+      )
+  fig_valuation_map.update_layout(
+      template="plotly_dark", height=390, margin=dict(l=45, r=20, t=20, b=40),
+      showlegend=False, bargap=0.08, hovermode="x unified",
+  )
+  fig_valuation_map.update_xaxes(
+      title_text="Date", range=[df["Date"].iloc[0], df["Date"].iloc[-1]], row=1, col=1,
+  )
+  fig_valuation_map.update_xaxes(
+      title_text="Jours", showgrid=True, gridcolor="rgba(148,163,184,0.16)", row=1, col=2,
+  )
+  fig_valuation_map.update_yaxes(
+      title_text="Z-score LPPL (σ)", range=[-4, 4], dtick=1,
+      gridcolor="rgba(255,255,255,0.16)", tickfont=dict(size=13), row=1, col=1,
+  )
+  fig_valuation_map.update_yaxes(
+      showticklabels=True, tickvals=valuation_zone_centers, ticktext=valuation_zone_labels,
+      tickfont=dict(size=12), side="right", row=1, col=2,
+  )
+  st.plotly_chart(fig_valuation_map, width="stretch")
+
+
+  # ============================================================================== 
   # 8. VUE COURT TERME : PROJECTION CONDITIONNÉE PAR LA PHASE
   # ==============================================================================
   st.markdown("---")
