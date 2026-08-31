@@ -30488,9 +30488,19 @@ with tab_overview:
       c_m5.metric("OOS RMSE (1Y)", f"{wf_rmse_1y_val:.1f}%")
       c_m6.metric("Ratio Out/In", f"{gen_ratio:.2f}x")
 
-  st.subheader("Carte historique des zones de valorisation LPPL")
+  valuation_map_model = st.selectbox(
+      "Modèle de la carte historique",
+      options=["LPPL", "Power Law"],
+      index=1,
+      key="valuation_map_model",
+      help="Choisissez le modèle utilisé pour calculer les zones de valorisation historiques.",
+  )
+  valuation_map_z_score = (
+      df["z_score"] if valuation_map_model == "LPPL" else df["z_score_pl"]
+  )
+  st.subheader(f"Carte historique des zones de valorisation {valuation_map_model}")
   st.caption(
-      "La courbe blanche suit le Z-score LPPL ; le profil à droite indique le "
+      f"La courbe blanche suit le Z-score {valuation_map_model} ; le profil à droite indique le "
       "nombre de jours historiques observés dans chaque zone de valorisation."
   )
   valuation_zone_edges = np.arange(-4.0, 4.5, 0.5)
@@ -30502,7 +30512,7 @@ with tab_overview:
       "#EA580C", "#DC2626", "#BE123C", "#881337",
   ]
   valuation_zone_counts, _ = np.histogram(
-      np.clip(df["z_score"].to_numpy(dtype=float), -4.0, 4.0),
+      np.clip(valuation_map_z_score.to_numpy(dtype=float), -4.0, 4.0),
       bins=valuation_zone_edges,
   )
   valuation_zone_percentages = 100.0 * valuation_zone_counts / len(df)
@@ -30535,15 +30545,19 @@ with tab_overview:
   )
   fig_valuation_map.add_trace(
       go.Scatter(
-          x=df["Date"], y=df["z_score"], mode="lines", name="Z-score LPPL",
+          x=df["Date"], y=valuation_map_z_score, mode="lines",
+          name=f"Z-score {valuation_map_model}",
           line=dict(color="#F8FAFC", width=1.5),
-          hovertemplate="Date : %{x|%d/%m/%Y}<br>Z-score LPPL : %{y:+.2f}σ<extra></extra>",
+          hovertemplate=(
+              "Date : %{x|%d/%m/%Y}<br>"
+              f"Z-score {valuation_map_model} : %{{y:+.2f}}σ<extra></extra>"
+          ),
       ),
       row=1, col=1,
   )
   fig_valuation_map.add_trace(
       go.Scatter(
-          x=[df["Date"].iloc[-1]], y=[df["z_score"].iloc[-1]],
+          x=[df["Date"].iloc[-1]], y=[valuation_map_z_score.iloc[-1]],
           mode="markers", name="Niveau actuel",
           marker=dict(color="#F59E0B", size=9, line=dict(color="#FEF3C7", width=1)),
           hovertemplate="Niveau actuel<br>%{x|%d/%m/%Y}<br>%{y:+.2f}σ<extra></extra>",
@@ -30584,7 +30598,7 @@ with tab_overview:
       title_text="Jours", showgrid=True, gridcolor="rgba(148,163,184,0.16)", row=1, col=2,
   )
   fig_valuation_map.update_yaxes(
-      title_text="Z-score LPPL (σ)", range=[-4, 4], dtick=1,
+      title_text=f"Z-score {valuation_map_model} (σ)", range=[-4, 4], dtick=1,
       gridcolor="rgba(255,255,255,0.16)", tickfont=dict(size=13), row=1, col=1,
   )
   fig_valuation_map.update_yaxes(
