@@ -118,27 +118,6 @@ def fit_mstr_log_periodic_model(mstr_data, start_date):
   }
 
 
-class _HiddenCloudSection:
-  """Conserve les calculs locaux sans exposer de vue Expert sur Cloud."""
-
-  def __init__(self):
-    self._slot = st.empty()
-    self._container = self._slot.container()
-
-  def __enter__(self):
-    return self._container.__enter__()
-
-  def __exit__(self, exc_type, exc_value, traceback):
-    self._container.__exit__(exc_type, exc_value, traceback)
-    self._slot.empty()
-
-try:
-  from arch import arch_model
-  HAS_ARCH = True
-except ImportError:
-  HAS_ARCH = False
-
-
 @st.cache_data(ttl=21600, max_entries=4, show_spinner=False)
 def load_market_comparison_assets(start_date, end_date):
   """Charge les clôtures des actifs comparés via Yahoo Finance."""
@@ -28864,18 +28843,8 @@ st.title("₿ Bitcoin PowerLaw + LPPL (2 Harmonics) — Cloud / Paramètres manu
 
 
 
-tab_overview, tab_horloges, tab_spectral, tab_forecast, tab_DCA, tab_histoire, tab_mstr, tab_comparaison = st.tabs(
-    [
-        "📈 Vue d'ensemble",
-        "⏱️ Horloges et cycle",
-        "💹 Analyse spectrale",
-        "🔮 Prévisions & Horizons",
-        "⚖️ DCA",
-        "⏳️ Histoire du tas de sable",
-        "🏢 MSTR — Power Law & LPPL",
-        "🔗 Comparaison multi-actifs",
-        
-    ]
+tab_overview, tab_horloges, tab_spectral, tab_forecast, tab_DCA, tab_histoire, tab_comparaison = st.tabs(
+    ["📈 Vue d'ensemble", '⏱️ Horloges et cycle', '💹 Analyse spectrale', '🔮 Prévisions & Horizons', '⚖️ DCA', '⏳️ Histoire du tas de sable', '🔗 Comparaison multi-actifs']
 )
 
 with tab_overview:
@@ -29030,6 +28999,15 @@ with tab_overview:
         help=(
             "❓ Affiche la courbe modèle LPPL ajustée (avec oscillations) et ses"
             " prévisions futures."
+        ),
+    )
+    show_error_corrected_lppl = st.checkbox(
+        "Afficher la prévision LPPL corrigée",
+        value=True,
+        help=(
+            "Ajoute une seconde prévision, sans modifier la courbe LPPL centrale. "
+            "Elle applique le biais médian historiquement observé pour chaque "
+            "phase angulaire du cycle LPPL."
         ),
     )
     use_energy = st.checkbox(
@@ -29942,6 +29920,13 @@ with tab_overview:
       ignore_index=True,
   ).dt.strftime("%d/%m/%Y")
 
+  phase_degrees_all = (
+      (omega * np.r_[df["lnT"].to_numpy(), future_lnT_arr]) % (2 * np.pi)
+  ) * (180 / np.pi)
+  hover_data_all = list(zip(hover_dates_all.tolist(), phase_degrees_all.tolist()))
+  hover_data_hist = hover_data_all[:len(df)]
+  hover_data_proj = [hover_data_all[len(df) - 1], *hover_data_all[len(df):]]
+
   all_pl_trend = df["trendPrice"].tolist() + list(future_pl_trend)
   all_pl_upper = df["trendUpperPrice"].tolist() + list(future_pl_upper)
   all_pl_lower = df["trendLowerPrice"].tolist() + list(future_pl_lower)
@@ -29996,6 +29981,59 @@ with tab_overview:
           include_lowest=True,
       )
   )
+
+  # Référence unique des scénarios : la distribution historique des z-scores
+  # dans chaque phase angulaire. Les prix de scénarios s'élargissent selon
+  # l'incertitude walk-forward OOS, puis la même médiane/les mêmes quantiles
+  # servent au graphique principal et à la vue court terme.
+  phase_conditioned_sigma_centers = np.array(
+      [-3.0]
+      + [
+          (lower + upper) / 2
+          for lower, upper in zip(
+              probability_sigma_edges[:-1], probability_sigma_edges[1:]
+          )
+      ]
+      + [3.0]
+  )
+
+  def phase_conditioned_quantiles(model_prices, uncertainties, phase_labels):
+    """Quantiles 10/25/50/75/90 % par phase, avec dispersion OOS."""
+    rows = []
+    for model_price, uncertainty, phase_label in zip(
+        np.asarray(model_prices, dtype=float),
+        np.asarray(uncertainties, dtype=float),
+        pd.Series(phase_labels).astype(str),
+    ):
+      sigma_weights = probability_matrix[phase_label].to_numpy(dtype=float)
+      if sigma_weights.sum() <= 0:
+        sigma_weights = np.full(
+            len(phase_conditioned_sigma_centers),
+            1.0 / len(phase_conditioned_sigma_centers),
+        )
+      scenario_prices = model_price * np.exp(
+          phase_conditioned_sigma_centers * uncertainty
+      )
+      order = np.argsort(scenario_prices)
+      scenario_prices = scenario_prices[order]
+      sigma_weights = sigma_weights[order]
+      cumulative_weights = np.cumsum(sigma_weights) - 0.5 * sigma_weights
+      rows.append(np.interp(
+          [0.10, 0.25, 0.50, 0.75, 0.90],
+          cumulative_weights / sigma_weights.sum(),
+          scenario_prices,
+      ))
+    return np.asarray(rows)
+
+  future_phase_quantiles = phase_conditioned_quantiles(
+      future_lppl, dynamic_uncertainty, future_probability_angles
+  )
+  future_lppl_corrected = future_phase_quantiles[:, 2]
+  future_correction_observations = historical_probability_angles.value_counts(
+      sort=False
+  ).reindex(
+      future_probability_angles.astype(str).tolist(), fill_value=0
+  ).to_numpy(dtype=int)
   max_probability_by_angle = probability_matrix.max(axis=0).clip(lower=0.01)
   historical_angle_max_probability = historical_probability_angles.astype("object").map(
       max_probability_by_angle
@@ -30057,6 +30095,11 @@ with tab_overview:
           mode="lines",
           name="Prix BTC",
           line=dict(color="#D1D5DB", width=1.2),
+          customdata=hover_data_hist,
+          hovertemplate=(
+              "Date : %{customdata[0]}<br>Prix BTC : $%{y:,.2f}"
+              "<br>Phase LPPL : %{customdata[1]:.1f}°<extra></extra>"
+          ),
       ),
       row=1,
       col=1,
@@ -30139,9 +30182,10 @@ with tab_overview:
                 mode="lines",
                 line=dict(color="rgba(241,245,249,0.001)", width=8),
                 showlegend=False,
-                customdata=hover_dates_all,
+                customdata=hover_data_all,
                 hovertemplate=(
-                    "Date : %{customdata}<br>Bande LPPL +1σ : $%{y:,.2f}<extra></extra>"
+                    "Date : %{customdata[0]}<br>Bande LPPL +1σ : $%{y:,.2f}"
+                    "<br>Phase LPPL : %{customdata[1]:.1f}°<extra></extra>"
                 ),
             ),
             row=1,
@@ -30154,9 +30198,10 @@ with tab_overview:
                 mode="lines",
                 line=dict(color="rgba(241,245,249,0.001)", width=8),
                 showlegend=False,
-                customdata=hover_dates_all,
+                customdata=hover_data_all,
                 hovertemplate=(
-                    "Date : %{customdata}<br>Bande LPPL −1σ : $%{y:,.2f}<extra></extra>"
+                    "Date : %{customdata[0]}<br>Bande LPPL −1σ : $%{y:,.2f}"
+                    "<br>Phase LPPL : %{customdata[1]:.1f}°<extra></extra>"
                 ),
             ),
             row=1,
@@ -30173,9 +30218,10 @@ with tab_overview:
                 name="Limites LPPL ±2σ",
                 legendgroup="lppl_2sigma",
                 showlegend=True,
-                customdata=hover_dates_all,
+                customdata=hover_data_all,
                 hovertemplate=(
-                    "Date : %{customdata}<br>Bande LPPL +2σ : $%{y:,.2f}<extra></extra>"
+                    "Date : %{customdata[0]}<br>Bande LPPL +2σ : $%{y:,.2f}"
+                    "<br>Phase LPPL : %{customdata[1]:.1f}°<extra></extra>"
                 ),
             ),
             row=1,
@@ -30189,9 +30235,10 @@ with tab_overview:
                 line=dict(color="rgba(148, 163, 184, 0.65)", width=1, dash="dash"),
                 legendgroup="lppl_2sigma",
                 showlegend=False,
-                customdata=hover_dates_all,
+                customdata=hover_data_all,
                 hovertemplate=(
-                    "Date : %{customdata}<br>Bande LPPL −2σ : $%{y:,.2f}<extra></extra>"
+                    "Date : %{customdata[0]}<br>Bande LPPL −2σ : $%{y:,.2f}"
+                    "<br>Phase LPPL : %{customdata[1]:.1f}°<extra></extra>"
                 ),
             ),
             row=1,
@@ -30207,9 +30254,10 @@ with tab_overview:
                 name="Limites LPPL ±3σ",
                 legendgroup="lppl_3sigma",
                 showlegend=True,
-                customdata=hover_dates_all,
+                customdata=hover_data_all,
                 hovertemplate=(
-                    "Date : %{customdata}<br>Bande LPPL +3σ : $%{y:,.2f}<extra></extra>"
+                    "Date : %{customdata[0]}<br>Bande LPPL +3σ : $%{y:,.2f}"
+                    "<br>Phase LPPL : %{customdata[1]:.1f}°<extra></extra>"
                 ),
             ),
             row=1,
@@ -30223,9 +30271,10 @@ with tab_overview:
                 line=dict(color="rgba(148, 163, 184, 0.35)", width=1, dash="dashdot"),
                 legendgroup="lppl_3sigma",
                 showlegend=False,
-                customdata=hover_dates_all,
+                customdata=hover_data_all,
                 hovertemplate=(
-                    "Date : %{customdata}<br>Bande LPPL −3σ : $%{y:,.2f}<extra></extra>"
+                    "Date : %{customdata[0]}<br>Bande LPPL −3σ : $%{y:,.2f}"
+                    "<br>Phase LPPL : %{customdata[1]:.1f}°<extra></extra>"
                 ),
             ),
             row=1,
@@ -30254,6 +30303,11 @@ with tab_overview:
                 else "LPPL Model Classique (Fit)"
             ),
             line=dict(color="#FF9900", width=2),
+            customdata=hover_data_hist,
+            hovertemplate=(
+                "Date : %{customdata[0]}<br>LPPL ajusté : $%{y:,.2f}"
+                "<br>Phase LPPL : %{customdata[1]:.1f}°<extra></extra>"
+            ),
         ),
         row=1,
         col=1,
@@ -30266,10 +30320,98 @@ with tab_overview:
             mode="lines",
             name="LPPL Prévision Centrale",
             line=dict(color="#FF9900", width=2.5, dash="dash"),
+            customdata=hover_data_proj,
+            hovertemplate=(
+                "Date : %{customdata[0]}<br>Prévision LPPL : $%{y:,.2f}"
+                "<br>Phase LPPL : %{customdata[1]:.1f}°<extra></extra>"
+            ),
         ),
         row=1,
         col=1,
     )
+
+    if show_error_corrected_lppl:
+      corrected_hover_data = list(zip(
+          pd.Series(future_dates_arr).dt.strftime("%d/%m/%Y").tolist(),
+          (
+              (omega * future_lnT_arr) % (2 * np.pi) * (180 / np.pi)
+          ).tolist(),
+          ((future_lppl_corrected / future_lppl - 1.0) * 100.0).tolist(),
+          future_correction_observations.tolist(),
+      ))
+      corrected_x = future_dates_arr if not log_time_axis else future_lnT_arr
+      # Même distribution conditionnelle que la vue court terme : bandes 80 %
+      # et 50 % autour de la médiane, limitées à la portion projetée.
+      fig.add_trace(
+          go.Scatter(
+              x=corrected_x,
+              y=future_phase_quantiles[:, 4],
+              mode="lines",
+              line=dict(color="rgba(167,139,250,0)", width=0),
+              showlegend=False,
+              hoverinfo="skip",
+          ),
+          row=1,
+          col=1,
+      )
+      fig.add_trace(
+          go.Scatter(
+              x=corrected_x,
+              y=future_phase_quantiles[:, 0],
+              mode="lines",
+              name="Intervalle conditionnel 80 % (LPPL)",
+              line=dict(color="rgba(167,139,250,0)", width=0),
+              fill="tonexty",
+              fillcolor="rgba(167,139,250,0.12)",
+              hoverinfo="skip",
+          ),
+          row=1,
+          col=1,
+      )
+      fig.add_trace(
+          go.Scatter(
+              x=corrected_x,
+              y=future_phase_quantiles[:, 3],
+              mode="lines",
+              line=dict(color="rgba(196,181,253,0)", width=0),
+              showlegend=False,
+              hoverinfo="skip",
+          ),
+          row=1,
+          col=1,
+      )
+      fig.add_trace(
+          go.Scatter(
+              x=corrected_x,
+              y=future_phase_quantiles[:, 1],
+              mode="lines",
+              name="Intervalle conditionnel 50 % (LPPL)",
+              line=dict(color="rgba(196,181,253,0)", width=0),
+              fill="tonexty",
+              fillcolor="rgba(167,139,250,0.20)",
+              hoverinfo="skip",
+          ),
+          row=1,
+          col=1,
+      )
+      fig.add_trace(
+          go.Scatter(
+              x=corrected_x,
+              y=future_lppl_corrected,
+              mode="lines",
+              name="LPPL Prévision corrigée (médiane conditionnelle)",
+              line=dict(color="#A78BFA", width=2.5, dash="dot"),
+              customdata=corrected_hover_data,
+              hovertemplate=(
+                  "Date : %{customdata[0]}<br>Prévision LPPL corrigée : $%{y:,.2f}"
+                  "<br>Phase LPPL : %{customdata[1]:.1f}°"
+                  "<br>Décalage de la médiane conditionnelle : %{customdata[2]:+.1f}%"
+                  "<br>Observations historiques de la phase : %{customdata[3]}<extra></extra>"
+              ),
+          ),
+          row=1,
+          col=1,
+      )
   if show_trend:
     fig.add_trace(
         go.Scatter(
@@ -30606,13 +30748,170 @@ with tab_overview:
       st.markdown("""
           * **Prix BTC (Gris)** : Cours de clôture quotidien du Bitcoin.
           * **LPPL Model (Orange)** : Courbe ajustée du modèle LPPL sélectionné.
+          * **LPPL Prévision corrigée (Violet)** : Médiane conditionnelle de la distribution historique des z-scores pour la phase LPPL en cours, accompagnée de ses intervalles 50 % et 80 %. Sa dispersion augmente avec l'incertitude walk-forward OOS ; elle ne remplace jamais la prévision centrale orange.
           * **Intervalles de confiance LPPL** : Les bandes ±2σ et ±3σ sont bleu-gris ; la bande centrale ±1σ est plus claire, presque blanche, pour renforcer le contraste autour du modèle.
           * **Coloration de probabilité** : Les segments 0–1σ, 1–2σ et 2–3σ sont évalués séparément au-dessus (σ positif) et au-dessous (σ négatif) du modèle. Ils sont rouges sous 1 % de la tranche dominante de la même phase angulaire.
           * **Power Law Fit (Bleu Cyan)** : Tendance fondamentale A + B * ln(t).
           * **Quadrillage Oméga (Lignes et angles)** : Marqueurs angulaires de cycle log-périodique.
           * **Z-Scores (Panneau Inférieur)** : Écarts normalisés du prix réel par rapport au modèle LPPL et à la Power Law.
           """)
+    valuation_map_model = st.selectbox(
+        "Modèle de la carte historique",
+        options=["LPPL", "Power Law"],
+        index=1,
+        key="valuation_map_model",
+        help="Choisissez le modèle utilisé pour calculer les zones de valorisation historiques.",
+    )
+    valuation_map_z_score = (
+        df["z_score"] if valuation_map_model == "LPPL" else df["z_score_pl"]
+    )
+    valuation_zone_edges = np.arange(-4.0, 4.5, 0.5)
+    valuation_zone_centers = (valuation_zone_edges[:-1] + valuation_zone_edges[1:]) / 2
+    valuation_zone_colors = [
+        "#4C1D95", "#4338CA", "#3730A3", "#1D4ED8",
+        "#0369A1", "#0E7490", "#0F766E", "#4D7C0F",
+        "#65A30D", "#A16207", "#CA8A04", "#D97706",
+        "#EA580C", "#DC2626", "#BE123C", "#881337",
+    ]
+    valuation_zone_counts, _ = np.histogram(
+        np.clip(valuation_map_z_score.to_numpy(dtype=float), -4.0, 4.0),
+        bins=valuation_zone_edges,
+    )
+    valuation_zone_percentages = 100.0 * valuation_zone_counts / len(df)
+    valuation_zone_labels = [
+        f"{lower:+.1f} à {upper:+.1f}σ"
+        for lower, upper in zip(valuation_zone_edges[:-1], valuation_zone_edges[1:])
+    ]
 
+    fig_valuation_map = make_subplots(
+        rows=1,
+        cols=2,
+        shared_yaxes=True,
+        column_widths=[0.70, 0.30],
+        horizontal_spacing=0.025,
+    )
+    valuation_colorscale = []
+    for index, color in enumerate(valuation_zone_colors):
+      zone_start = index / len(valuation_zone_colors)
+      zone_end = (index + 1) / len(valuation_zone_colors)
+      valuation_colorscale.extend([(zone_start, color), (zone_end, color)])
+    fig_valuation_map.add_trace(
+        go.Heatmap(
+            x=[df["Date"].iloc[0], df["Date"].iloc[-1]],
+            y=valuation_zone_centers,
+            z=np.repeat(
+                (np.arange(len(valuation_zone_colors)) + 0.5)[:, np.newaxis], 2, axis=1
+            ),
+            zmin=0,
+            zmax=len(valuation_zone_colors),
+            colorscale=valuation_colorscale,
+            showscale=False,
+            hoverinfo="skip",
+            opacity=0.68,
+        ),
+        row=1,
+        col=1,
+    )
+
+    fig_valuation_map.add_trace(
+        go.Scatter(
+            x=df["Date"],
+            y=valuation_map_z_score,
+            mode="lines",
+            name=f"Z-score {valuation_map_model}",
+            line=dict(color="#F8FAFC", width=1.5),
+            hovertemplate=(
+                "Date : %{x|%d/%m/%Y}<br>"
+                f"Z-score {valuation_map_model} : %{{y:+.2f}}σ<extra></extra>"
+            ),
+        ),
+        row=1,
+        col=1,
+    )
+    fig_valuation_map.add_trace(
+        go.Scatter(
+            x=[df["Date"].iloc[-1]],
+            y=[valuation_map_z_score.iloc[-1]],
+            mode="markers",
+            name="Niveau actuel",
+            marker=dict(color="#F59E0B", size=9, line=dict(color="#FEF3C7", width=1)),
+            hovertemplate="Niveau actuel<br>%{x|%d/%m/%Y}<br>%{y:+.2f}σ<extra></extra>",
+        ),
+        row=1,
+        col=1,
+    )
+    fig_valuation_map.add_trace(
+        go.Bar(
+            x=valuation_zone_counts,
+            y=valuation_zone_centers,
+            orientation="h",
+            width=0.44,
+            marker=dict(color=valuation_zone_colors, line=dict(color="#0F172A", width=0.4)),
+            text=[f"{percentage:.1f}%" if count else "" for count, percentage in zip(
+                valuation_zone_counts, valuation_zone_percentages
+            )],
+            texttemplate="%{text}",
+            textposition="outside",
+            textfont=dict(size=13, color="#F8FAFC"),
+            cliponaxis=False,
+            customdata=[
+                f"Zone : {label}<br>Observations : {count:,}<br>Part historique : {percentage:.1f}%"
+                for label, count, percentage in zip(
+                    valuation_zone_labels,
+                    valuation_zone_counts,
+                    valuation_zone_percentages,
+                )
+            ],
+            name="Jours par zone",
+            hovertemplate="%{customdata}<extra></extra>",
+        ),
+        row=1,
+        col=2,
+    )
+    fig_valuation_map.add_hline(
+        y=0,
+        line_color="rgba(255,255,255,0.55)",
+        line_width=1,
+        row=1,
+        col=1,
+    )
+    fig_valuation_map.add_hline(
+        y=0,
+        line_color="rgba(255,255,255,0.55)",
+        line_width=1,
+        row=1,
+        col=2,
+    )
+    fig_valuation_map.update_layout(
+        template="plotly_dark",
+        height=390,
+        margin=dict(l=45, r=20, t=20, b=40),
+        showlegend=False,
+        bargap=0.08,
+        hovermode="x unified",
+    )
+    fig_valuation_map.update_xaxes(
+        title_text="Date",
+        range=[df["Date"].iloc[0], df["Date"].iloc[-1]],
+        row=1,
+        col=1,
+    )
+    fig_valuation_map.update_xaxes(
+        title_text="Jours", showgrid=True, gridcolor="rgba(148,163,184,0.16)", row=1, col=2
+    )
+    fig_valuation_map.update_yaxes(
+        title_text=f"Z-score {valuation_map_model} (σ)", range=[-4, 4], dtick=1,
+        gridcolor="rgba(255,255,255,0.16)", tickfont=dict(size=13), row=1, col=1,
+    )
+    fig_valuation_map.update_yaxes(
+        showticklabels=True,
+        tickvals=valuation_zone_centers,
+        ticktext=valuation_zone_labels,
+        tickfont=dict(size=12),
+        side="right",
+        row=1,
+        col=2,
+    )
   with col_dash:
     with st.container(border=True):
       st.subheader("📌 Live & Modèle")
@@ -30709,146 +31008,43 @@ with tab_overview:
     bottom_q3 = min(-0.85, float(np.max(bottom_z_scores) + 0.08))
     fig_bottom_history = go.Figure()
     fig_bottom_history.add_hrect(
-        y0=bottom_q1, y1=bottom_q3, fillcolor="rgba(34, 197, 94, 0.16)", line_width=0,
-        annotation_text="Plage des bottoms historiques (≤ −0,85σ)", annotation_position="top left",
+        y0=bottom_q1,
+        y1=bottom_q3,
+        fillcolor="rgba(34, 197, 94, 0.16)",
+        line_width=0,
+        annotation_text="Plage des bottoms historiques (≤ −0,85σ)",
+        annotation_position="top left",
     )
     fig_bottom_history.add_hline(
-        y=bottom_probability["bottom_z_median"], line=dict(color="#22C55E", width=1.5, dash="dash"),
-        annotation_text="Médiane des bottoms", annotation_position="bottom left",
+        y=bottom_probability["bottom_z_median"],
+        line=dict(color="#22C55E", width=1.5, dash="dash"),
+        annotation_text="Médiane des bottoms",
+        annotation_position="bottom left",
     )
     fig_bottom_history.add_trace(go.Scatter(
-        x=df["Date"], y=df["z_score_pl"], mode="lines", name="Z-score Power Law",
-        line=dict(color="#38BDF8", width=1.6),
+        x=df["Date"], y=df["z_score_pl"], mode="lines",
+        name="Z-score Power Law", line=dict(color="#38BDF8", width=1.6),
     ))
     fig_bottom_history.add_trace(go.Scatter(
-        x=bottom_probability["bottom_dates"], y=bottom_z_scores, mode="markers", name="Bottoms significatifs confirmés",
+        x=bottom_probability["bottom_dates"],
+        y=bottom_z_scores,
+        mode="markers", name="Bottoms significatifs confirmés",
         marker=dict(color="#22C55E", size=10, symbol="diamond", line=dict(color="#F0FDF4", width=1.2)),
     ))
     fig_bottom_history.add_trace(go.Scatter(
-        x=[df["Date"].iloc[-1]], y=[bottom_probability["current_z"]], mode="markers", name="Position actuelle",
+        x=[df["Date"].iloc[-1]], y=[bottom_probability["current_z"]],
+        mode="markers", name="Position actuelle",
         marker=dict(color="#F59E0B", size=14, symbol="star", line=dict(color="#FFF7ED", width=1.5)),
     ))
     fig_bottom_history.update_layout(
-        template="plotly_dark", height=370, margin=dict(l=50, r=25, t=30, b=40), hovermode="x unified",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        template="plotly_dark", height=370, margin=dict(l=50, r=25, t=30, b=40),
+        hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
         yaxis=dict(title="Z-score Power Law (σ)", zeroline=True), xaxis=dict(title="Date"),
     )
-  valuation_map_model = st.selectbox(
-      "Modèle de la carte historique",
-      options=["LPPL", "Power Law"],
-      index=1,
-      key="valuation_map_model",
-      help="Choisissez le modèle utilisé pour calculer les zones de valorisation historiques.",
-  )
-  valuation_map_z_score = (
-      df["z_score"] if valuation_map_model == "LPPL" else df["z_score_pl"]
-  )
   st.subheader(f"Carte historique des zones de valorisation {valuation_map_model}")
   st.caption(
       f"La courbe blanche suit le Z-score {valuation_map_model} ; le profil à droite indique le "
       "nombre de jours historiques observés dans chaque zone de valorisation."
-  )
-  valuation_zone_edges = np.arange(-4.0, 4.5, 0.5)
-  valuation_zone_centers = (valuation_zone_edges[:-1] + valuation_zone_edges[1:]) / 2
-  valuation_zone_colors = [
-      "#4C1D95", "#4338CA", "#3730A3", "#1D4ED8",
-      "#0369A1", "#0E7490", "#0F766E", "#4D7C0F",
-      "#65A30D", "#A16207", "#CA8A04", "#D97706",
-      "#EA580C", "#DC2626", "#BE123C", "#881337",
-  ]
-  valuation_zone_counts, _ = np.histogram(
-      np.clip(valuation_map_z_score.to_numpy(dtype=float), -4.0, 4.0),
-      bins=valuation_zone_edges,
-  )
-  valuation_zone_percentages = 100.0 * valuation_zone_counts / len(df)
-  valuation_zone_labels = [
-      f"{lower:+.1f} à {upper:+.1f}σ"
-      for lower, upper in zip(valuation_zone_edges[:-1], valuation_zone_edges[1:])
-  ]
-  valuation_colorscale = []
-  for index, color in enumerate(valuation_zone_colors):
-      zone_start = index / len(valuation_zone_colors)
-      zone_end = (index + 1) / len(valuation_zone_colors)
-      valuation_colorscale.extend([(zone_start, color), (zone_end, color)])
-
-  fig_valuation_map = make_subplots(
-      rows=1, cols=2, shared_yaxes=True,
-      column_widths=[0.70, 0.30], horizontal_spacing=0.025,
-  )
-  fig_valuation_map.add_trace(
-      go.Heatmap(
-          x=[df["Date"].iloc[0], df["Date"].iloc[-1]],
-          y=valuation_zone_centers,
-          z=np.repeat(
-              (np.arange(len(valuation_zone_colors)) + 0.5)[:, np.newaxis], 2, axis=1
-          ),
-          zmin=0, zmax=len(valuation_zone_colors),
-          colorscale=valuation_colorscale, showscale=False,
-          hoverinfo="skip", opacity=0.68,
-      ),
-      row=1, col=1,
-  )
-  fig_valuation_map.add_trace(
-      go.Scatter(
-          x=df["Date"], y=valuation_map_z_score, mode="lines",
-          name=f"Z-score {valuation_map_model}",
-          line=dict(color="#F8FAFC", width=1.5),
-          hovertemplate=(
-              "Date : %{x|%d/%m/%Y}<br>"
-              f"Z-score {valuation_map_model} : %{{y:+.2f}}σ<extra></extra>"
-          ),
-      ),
-      row=1, col=1,
-  )
-  fig_valuation_map.add_trace(
-      go.Scatter(
-          x=[df["Date"].iloc[-1]], y=[valuation_map_z_score.iloc[-1]],
-          mode="markers", name="Niveau actuel",
-          marker=dict(color="#F59E0B", size=9, line=dict(color="#FEF3C7", width=1)),
-          hovertemplate="Niveau actuel<br>%{x|%d/%m/%Y}<br>%{y:+.2f}σ<extra></extra>",
-      ),
-      row=1, col=1,
-  )
-  fig_valuation_map.add_trace(
-      go.Bar(
-          x=valuation_zone_counts, y=valuation_zone_centers, orientation="h", width=0.44,
-          marker=dict(color=valuation_zone_colors, line=dict(color="#0F172A", width=0.4)),
-          text=[f"{percentage:.1f}%" if count else "" for count, percentage in zip(
-              valuation_zone_counts, valuation_zone_percentages
-          )],
-          texttemplate="%{text}", textposition="outside",
-          textfont=dict(size=13, color="#F8FAFC"), cliponaxis=False,
-          customdata=[
-              f"Zone : {label}<br>Observations : {count:,}<br>Part historique : {percentage:.1f}%"
-              for label, count, percentage in zip(
-                  valuation_zone_labels, valuation_zone_counts, valuation_zone_percentages
-              )
-          ],
-          name="Jours par zone", hovertemplate="%{customdata}<extra></extra>",
-      ),
-      row=1, col=2,
-  )
-  for column in (1, 2):
-      fig_valuation_map.add_hline(
-          y=0, line_color="rgba(255,255,255,0.55)", line_width=1, row=1, col=column
-      )
-  fig_valuation_map.update_layout(
-      template="plotly_dark", height=390, margin=dict(l=45, r=20, t=20, b=40),
-      showlegend=False, bargap=0.08, hovermode="x unified",
-  )
-  fig_valuation_map.update_xaxes(
-      title_text="Date", range=[df["Date"].iloc[0], df["Date"].iloc[-1]], row=1, col=1,
-  )
-  fig_valuation_map.update_xaxes(
-      title_text="Jours", showgrid=True, gridcolor="rgba(148,163,184,0.16)", row=1, col=2,
-  )
-  fig_valuation_map.update_yaxes(
-      title_text=f"Z-score {valuation_map_model} (σ)", range=[-4, 4], dtick=1,
-      gridcolor="rgba(255,255,255,0.16)", tickfont=dict(size=13), row=1, col=1,
-  )
-  fig_valuation_map.update_yaxes(
-      showticklabels=True, tickvals=valuation_zone_centers, ticktext=valuation_zone_labels,
-      tickfont=dict(size=12), side="right", row=1, col=2,
   )
   st.plotly_chart(fig_valuation_map, width="stretch")
 
@@ -30862,15 +31058,15 @@ with tab_overview:
     st.plotly_chart(fig_bottom_history, width="stretch")
 
 
-  # ============================================================================== 
+  # ==============================================================================
   # 8. VUE COURT TERME : PROJECTION CONDITIONNÉE PAR LA PHASE
   # ==============================================================================
   st.markdown("---")
   st.subheader("🔎 Projection LPPL court terme — phase angulaire & incertitude OOS")
   st.caption(
       "Vue quotidienne jusqu'à trois ans : elle combine la trajectoire LPPL, "
-      "les erreurs walk-forward et la fréquence historique des écarts au modèle dans chaque "
-      "phase angulaire. C'est une distribution probabiliste, pas un signal de trading."
+      "les résidus walk-forward hors échantillon et la phase angulaire. C'est une "
+      "distribution probabiliste, pas un signal de trading."
   )
   short_term_control_horizon, short_term_control_history = st.columns(2)
   with short_term_control_horizon:
@@ -30882,8 +31078,8 @@ with tab_overview:
             365: "1 an", 730: "2 ans", 1095: "3 ans"
         }.get(days, f"{days // 30} mois"),
         help=(
-            "Nombre de jours projetés. Les bandes utilisent l'incertitude walk-forward "
-            "et les fréquences historiques par phase angulaire."
+            "Nombre de jours projetés. La médiane et les bandes utilisent les "
+            "résidus walk-forward hors échantillon de la phase angulaire."
         ),
     )
   with short_term_control_history:
@@ -30899,49 +31095,21 @@ with tab_overview:
 
   short_term_days = min(short_term_horizon_days, len(future_lppl))
   short_term_history = df.tail(short_term_lookback_days).copy()
-  short_term_sigma_centers = np.array(
-      [-3.0]
-      + [
-          (lower + upper) / 2
-          for lower, upper in zip(
-              probability_sigma_edges[:-1], probability_sigma_edges[1:]
-          )
-      ]
-      + [3.0]
-  )
-
-  def phase_conditioned_quantiles(model_price, uncertainty, phase_label):
-      """Quantiles discrets pondérés par les écarts LPPL historiques de la phase."""
-      sigma_weights = probability_matrix[phase_label].to_numpy(dtype=float)
-      scenario_prices = model_price * np.exp(short_term_sigma_centers * uncertainty)
-      order = np.argsort(scenario_prices)
-      scenario_prices = scenario_prices[order]
-      sigma_weights = sigma_weights[order]
-      total_weight = sigma_weights.sum()
-      if total_weight <= 0:
-          return np.quantile(scenario_prices, [0.10, 0.25, 0.50, 0.75, 0.90])
-      cumulative_weights = np.cumsum(sigma_weights) - 0.5 * sigma_weights
-      return np.interp(
-          [0.10, 0.25, 0.50, 0.75, 0.90],
-          cumulative_weights / total_weight,
-          scenario_prices,
-      )
-
   current_phase_label = str(historical_probability_angles.iloc[-1])
   short_term_quantile_rows = [
       phase_conditioned_quantiles(
-          df["modelPrice"].iloc[-1], res_std_log, current_phase_label
-      )
+          [df["modelPrice"].iloc[-1]], [res_std_log], [current_phase_label]
+      )[0]
   ]
   short_term_phase_labels = [current_phase_label]
   for day_index in range(short_term_days):
       future_phase_label = str(future_probability_angles.iloc[day_index])
       short_term_quantile_rows.append(
           phase_conditioned_quantiles(
-              future_lppl[day_index],
-              dynamic_uncertainty[day_index],
-              future_phase_label,
-          )
+              [future_lppl[day_index]],
+              [dynamic_uncertainty[day_index]],
+              [future_phase_label],
+          )[0]
       )
       short_term_phase_labels.append(future_phase_label)
 
@@ -31089,9 +31257,10 @@ with tab_overview:
   with st.expander("❓ Méthode et limites — projection court terme"):
     st.markdown(
         "* La **projection centrale** prolonge le modèle LPPL avec les paramètres actifs.\n"
-        "* La **médiane conditionnelle** et les intervalles 50 % / 80 % pondèrent les "
-        "écarts LPPL historiques observés dans la phase angulaire correspondante.\n"
-        "* L'ampleur des scénarios augmente avec l'incertitude mesurée en walk-forward. "
+        "* La **médiane conditionnelle** et les intervalles 50 % / 80 % utilisent la "
+        "distribution historique des z-scores de la phase angulaire correspondante.\n"
+        "* La même médiane conditionnelle alimente la courbe violette du graphique principal ; "
+        "la dispersion s'élargit avec les erreurs walk-forward hors échantillon. "
         "Le résultat reste statistique et ne préjuge pas de chocs exogènes ou de liquidité."
     )
 
@@ -31103,6 +31272,7 @@ with tab_overview:
   signed_sigma_display_levels = list(reversed(signed_sigma_levels))
   signed_sigma_bands = probability_sigma_bands
   current_signed_sigma_band = signed_sigma_bands.iloc[-1]
+
   st.markdown("---")
   st.subheader("Répartition des tranches σ LPPL selon la phase angulaire")
   st.caption(
@@ -31138,7 +31308,7 @@ with tab_overview:
           ))
   st.markdown(
       "<span style='color:#F59E0B;font-weight:700'>━ LPPL central (0 σ)</span>"
-      " &nbsp; <span style='color:#2563EB;font-weight:700'>━ Médiane conditionnelle par phase</span>",
+      " &nbsp; <span style='color:#38BDF8;font-weight:700'>━ Médiane conditionnelle par phase</span>",
       unsafe_allow_html=True,
   )
   st.caption("Le trait bleu utilise la distribution des tranches σ de chaque phase ; il est absent sans observations.")
@@ -31174,7 +31344,7 @@ with tab_overview:
           row_lower = row_upper - 0.5
           for value, color, label in (
               (0.0, "#F59E0B", "LPPL central"),
-              (phase_medians.get(angle_label), "#2563EB", "Médiane conditionnelle"),
+              (phase_medians.get(angle_label), "#38BDF8", "Médiane conditionnelle"),
           ):
               if value is not None and row_lower <= value < row_upper:
                   position = 100 * (row_upper - value) / 0.5
@@ -32028,7 +32198,7 @@ with tab_horloges:
         ),
         showlegend=False,
     )
-    st.plotly_chart(fig_clock_omega, use_container_width=True)
+    st.plotly_chart(fig_clock_omega, width="stretch")
 
   # ==============================================================================
   # SECTION : PROFIL DE VITESSE TYPIQUE EN FONCTION DE LA PHASE DU CYCLE
@@ -32157,12 +32327,33 @@ with tab_horloges:
       unwrapped_cycle_phase >= unwrapped_cycle_phase.iloc[-1] - trail_span_degrees,
       ["Date", "cycle_phase_deg", "z_velocity"],
   ].copy()
+  # Une rupture évite de relier 359° à 0° à travers toute la largeur du graphe.
   phase_trail["line_phase"] = phase_trail["cycle_phase_deg"].astype(float)
-  phase_trail.loc[phase_trail["cycle_phase_deg"].diff() < -180, "line_phase"] = np.nan
-  phase_grid = np.arange(np.ceil(unwrapped_cycle_phase.iloc[0]), np.floor(unwrapped_cycle_phase.iloc[-1]) + 1, dtype=float)
+  phase_trail.loc[
+      phase_trail["cycle_phase_deg"].diff() < -180, "line_phase"
+  ] = np.nan
+  # Même fenêtre angulaire que le profil historique : 3°. Les valeurs
+  # quotidiennes sont d'abord interpolées degré par degré, puis lissées.
+  trail_smoothing_window = smoothing_window
+  phase_grid = np.arange(
+      np.ceil(unwrapped_cycle_phase.iloc[0]),
+      np.floor(unwrapped_cycle_phase.iloc[-1]) + 1,
+      dtype=float,
+  )
   phase_trail["unwrapped_phase"] = unwrapped_cycle_phase.loc[phase_trail.index]
-  smoothed_velocity_grid = pd.Series(np.interp(phase_grid, unwrapped_cycle_phase.to_numpy(), df["z_velocity"].to_numpy())).rolling(smoothing_window, center=True, min_periods=1).mean().to_numpy()
-  phase_trail["z_velocity_smoothed"] = np.interp(phase_trail["unwrapped_phase"], phase_grid, smoothed_velocity_grid)
+  velocity_on_phase_grid = np.interp(
+      phase_grid,
+      unwrapped_cycle_phase.to_numpy(),
+      df["z_velocity"].to_numpy(),
+  )
+  smoothed_velocity_on_phase_grid = pd.Series(velocity_on_phase_grid).rolling(
+      trail_smoothing_window, center=True, min_periods=1
+  ).mean().to_numpy()
+  phase_trail["z_velocity_smoothed"] = np.interp(
+      phase_trail["unwrapped_phase"],
+      phase_grid,
+      smoothed_velocity_on_phase_grid,
+  )
 
   fig_speed_profile_detailed = go.Figure()
   fig_speed_profile_detailed.add_trace(
@@ -32187,12 +32378,6 @@ with tab_horloges:
           name="Dispersion locale (±1σ)",
       )
   )
-  fig_speed_profile_detailed.add_trace(go.Scatter(
-      x=phase_trail["line_phase"], y=phase_trail["z_velocity_smoothed"], mode="lines+markers",
-      name="Réel lissé récent — fenêtre 3°", line=dict(color="rgba(239, 68, 68, 0.15)", width=1.8),
-      marker=dict(color="rgba(239, 68, 68, 0.15)", size=3), customdata=phase_trail[["Date", "cycle_phase_deg"]],
-      hovertemplate="Date : %{customdata[0]|%d/%m/%Y}<br>Phase : %{customdata[1]:.1f}°<br>Vitesse réelle lissée : %{y:+.3f} Δσ / 30j<extra></extra>",
-  ))
   fig_speed_profile_detailed.add_trace(
       go.Scatter(
           x=phase_degrees,
@@ -32210,6 +32395,34 @@ with tab_horloges:
               "Moyenne à ce degré : %{customdata[0]:+.3f} Δσ / 30j<br>"
               "Observations : %{customdata[1]:.0f}<extra></extra>"
           ),
+      )
+  )
+  fig_speed_profile_detailed.add_trace(
+      go.Scatter(
+          x=phase_trail["line_phase"],
+          y=phase_trail["z_velocity_smoothed"],
+          mode="lines+markers",
+          name="Réel lissé récent — fenêtre 3°",
+          legendgroup="recent_velocity_trail",
+          showlegend=False,
+          line=dict(color="rgba(239, 68, 68, 0.15)", width=1.8),
+          marker=dict(color="rgba(239, 68, 68, 0.15)", size=3),
+          customdata=phase_trail[["Date", "cycle_phase_deg"]],
+          hovertemplate=(
+              "Date : %{customdata[0]|%d/%m/%Y}<br>"
+              "Phase : %{customdata[1]:.1f}°<br>"
+              "Vitesse réelle lissée : %{y:+.3f} Δσ / 30j<extra></extra>"
+          ),
+      )
+  )
+  fig_speed_profile_detailed.add_trace(
+      go.Scatter(
+          x=[None], y=[None], mode="lines+markers",
+          name="Réel lissé récent — fenêtre 3°",
+          legendgroup="recent_velocity_trail",
+          line=dict(color="rgba(239, 68, 68, 0.95)", width=3),
+          marker=dict(color="rgba(239, 68, 68, 0.95)", size=6),
+          hoverinfo="skip",
       )
   )
   fig_speed_profile_detailed.add_hline(
@@ -32236,66 +32449,172 @@ with tab_horloges:
       xaxis_title="Phase angulaire du cycle (degrés)",
       yaxis_title="Vitesse moyenne du Z-Score (Δσ / 30j)",
       xaxis=dict(range=[0, 359], dtick=45, ticksuffix="°"),
-      legend=dict(orientation="h", y=1.12, x=0.5, xanchor="center"),
+      legend=dict(orientation="h", y=1.12, x=0.5, xanchor="center", groupclick="togglegroup"),
   )
   st.plotly_chart(fig_speed_profile_detailed, width="stretch")
 
+  # Profil d'accélération/décélération à 1° : on mesure la variation de la
+  # vitesse sur 30 jours. Le lissage circulaire préserve la continuité entre
+  # les phases 359° et 0°.
   st.subheader("📉 Profil d’accélération / décélération — résolution 1°")
-  st.caption("Variation de la vitesse du Z-score Power Law sur 30 jours : positive = accélération, négative = décélération.")
+  st.caption(
+      "L’accélération est la variation de la vitesse du Z-score Power Law sur "
+      "30 jours : une valeur positive indique une accélération, une valeur "
+      "négative une décélération."
+  )
   df["z_acceleration"] = df["z_velocity"].diff(30).fillna(0)
   current_acceleration = df["z_acceleration"].iloc[-1]
-  smoothed_acceleration_grid = pd.Series(np.interp(
-      phase_grid, unwrapped_cycle_phase.to_numpy(), df["z_acceleration"].to_numpy()
-  )).rolling(smoothing_window, center=True, min_periods=1).mean().to_numpy()
+  phase_trail["z_acceleration"] = df.loc[phase_trail.index, "z_acceleration"]
+  acceleration_on_phase_grid = np.interp(
+      phase_grid,
+      unwrapped_cycle_phase.to_numpy(),
+      df["z_acceleration"].to_numpy(),
+  )
+  smoothed_acceleration_on_phase_grid = pd.Series(
+      acceleration_on_phase_grid
+  ).rolling(trail_smoothing_window, center=True, min_periods=1).mean().to_numpy()
   phase_trail["z_acceleration_smoothed"] = np.interp(
-      phase_trail["unwrapped_phase"], phase_grid, smoothed_acceleration_grid
+      phase_trail["unwrapped_phase"],
+      phase_grid,
+      smoothed_acceleration_on_phase_grid,
   )
+
+  acceleration_bin_size = 1
   acceleration_profile = (
-      df.assign(cycle_degree=np.floor(df["cycle_phase_deg"]).astype(int) % 360)
-      .groupby("cycle_degree")["z_acceleration"].agg(["mean", "std", "count"]).reindex(range(360))
+      df.assign(
+          cycle_degree_5=(
+              np.floor(df["cycle_phase_deg"] / acceleration_bin_size).astype(int)
+              * acceleration_bin_size
+          ) % 360
+      )
+      .groupby("cycle_degree_5")["z_acceleration"]
+      .agg(["mean", "std", "count"])
+      .reindex(range(0, 360, acceleration_bin_size))
   )
-  circular_acceleration = pd.concat([
-      acceleration_profile.iloc[-(smoothing_window // 2):], acceleration_profile,
-      acceleration_profile.iloc[:smoothing_window // 2],
+  acceleration_smoothing_window = smoothing_window
+  circular_acceleration_profile = pd.concat([
+      acceleration_profile.iloc[-(acceleration_smoothing_window // 2):],
+      acceleration_profile,
+      acceleration_profile.iloc[:acceleration_smoothing_window // 2],
   ])
-  smoothed_acceleration = circular_acceleration.rolling(
-      smoothing_window, center=True, min_periods=1
-  ).mean().iloc[smoothing_window // 2:-(smoothing_window // 2)]
+  smoothed_acceleration_profile = circular_acceleration_profile.rolling(
+      acceleration_smoothing_window, center=True, min_periods=1
+  ).mean().iloc[
+      acceleration_smoothing_window // 2:-(acceleration_smoothing_window // 2)
+  ]
+  acceleration_phases = np.arange(0, 360, acceleration_bin_size)
+
   fig_acceleration_profile = go.Figure()
-  fig_acceleration_profile.add_trace(go.Scatter(
-      x=phase_degrees, y=smoothed_acceleration["mean"] + smoothed_acceleration["std"].fillna(0),
-      mode="lines", line=dict(width=0), hoverinfo="skip", showlegend=False,
-  ))
-  fig_acceleration_profile.add_trace(go.Scatter(
-      x=phase_degrees, y=smoothed_acceleration["mean"] - smoothed_acceleration["std"].fillna(0),
-      mode="lines", line=dict(width=0), fill="tonexty", fillcolor="rgba(168, 85, 247, 0.16)",
-      hoverinfo="skip", name="Dispersion locale (±1σ)",
-  ))
-  fig_acceleration_profile.add_trace(go.Scatter(
-      x=phase_degrees, y=smoothed_acceleration["mean"], mode="lines", name="Accélération moyenne lissée",
-      line=dict(color="#A855F7", width=2.5),
-      customdata=np.column_stack([acceleration_profile["mean"].to_numpy(), acceleration_profile["count"].fillna(0).to_numpy()]),
-      hovertemplate="Phase : %{x:.0f}°<br>Accélération lissée : %{y:+.3f} Δ(Δσ / 30j) / 30j<br>Moyenne du secteur : %{customdata[0]:+.3f}<br>Observations : %{customdata[1]:.0f}<extra></extra>",
-  ))
-  fig_acceleration_profile.add_trace(go.Scatter(
-      x=phase_trail["line_phase"], y=phase_trail["z_acceleration_smoothed"], mode="lines+markers",
-      name="Réel lissé récent — fenêtre 3°", line=dict(color="rgba(239, 68, 68, 0.15)", width=1.8),
-      marker=dict(color="rgba(239, 68, 68, 0.15)", size=3), customdata=phase_trail[["Date", "cycle_phase_deg"]],
-      hovertemplate="Date : %{customdata[0]|%d/%m/%Y}<br>Phase : %{customdata[1]:.1f}°<br>Accélération réelle lissée : %{y:+.3f} Δ(Δσ / 30j) / 30j<extra></extra>",
-  ))
-  fig_acceleration_profile.add_hline(y=0, line_color="rgba(255, 255, 255, 0.4)", line_width=1.2)
-  fig_acceleration_profile.add_vline(x=current_phase, line_dash="dash", line_color="#F43F5E", line_width=2.5,
-                                     annotation_text=f"Actuel : {current_phase:.1f}°", annotation_position="top right",
-                                     annotation_font_color="#F43F5E")
-  fig_acceleration_profile.add_trace(go.Scatter(
-      x=[current_phase], y=[current_acceleration], mode="markers", name="Accélération actuelle",
-      marker=dict(color="#F43F5E", size=12, line=dict(color="#FFFFFF", width=1.5)),
-  ))
+  fig_acceleration_profile.add_trace(
+      go.Scatter(
+          x=acceleration_phases,
+          y=(
+              smoothed_acceleration_profile["mean"]
+              + smoothed_acceleration_profile["std"].fillna(0)
+          ),
+          mode="lines",
+          line=dict(width=0),
+          hoverinfo="skip",
+          showlegend=False,
+      )
+  )
+  fig_acceleration_profile.add_trace(
+      go.Scatter(
+          x=acceleration_phases,
+          y=(
+              smoothed_acceleration_profile["mean"]
+              - smoothed_acceleration_profile["std"].fillna(0)
+          ),
+          mode="lines",
+          line=dict(width=0),
+          fill="tonexty",
+          fillcolor="rgba(168, 85, 247, 0.16)",
+          hoverinfo="skip",
+          name="Dispersion locale (±1σ)",
+      )
+  )
+  fig_acceleration_profile.add_trace(
+      go.Scatter(
+          x=acceleration_phases,
+          y=smoothed_acceleration_profile["mean"],
+          mode="lines",
+          name="Accélération moyenne lissée",
+          line=dict(color="#A855F7", width=2.5),
+          customdata=np.column_stack([
+              acceleration_profile["mean"].to_numpy(),
+              acceleration_profile["count"].fillna(0).to_numpy(),
+          ]),
+          hovertemplate=(
+              "Phase : %{x:.0f}°<br>"
+              "Accélération lissée : %{y:+.3f} Δ(Δσ / 30j) / 30j<br>"
+              "Moyenne du secteur : %{customdata[0]:+.3f} Δ(Δσ / 30j) / 30j<br>"
+              "Observations : %{customdata[1]:.0f}<extra></extra>"
+          ),
+      )
+  )
+  fig_acceleration_profile.add_trace(
+      go.Scatter(
+          x=phase_trail["line_phase"],
+          y=phase_trail["z_acceleration_smoothed"],
+          mode="lines+markers",
+          name="Réel lissé récent — fenêtre 3°",
+          legendgroup="recent_acceleration_trail",
+          showlegend=False,
+          line=dict(color="rgba(239, 68, 68, 0.15)", width=1.8),
+          marker=dict(color="rgba(239, 68, 68, 0.15)", size=3),
+          customdata=phase_trail[["Date", "cycle_phase_deg"]],
+          hovertemplate=(
+              "Date : %{customdata[0]|%d/%m/%Y}<br>"
+              "Phase : %{customdata[1]:.1f}°<br>"
+              "Accélération réelle lissée : %{y:+.3f} Δ(Δσ / 30j) / 30j<extra></extra>"
+          ),
+      )
+  )
+  fig_acceleration_profile.add_trace(
+      go.Scatter(
+          x=[None], y=[None], mode="lines+markers",
+          name="Réel lissé récent — fenêtre 3°",
+          legendgroup="recent_acceleration_trail",
+          line=dict(color="rgba(239, 68, 68, 0.95)", width=3),
+          marker=dict(color="rgba(239, 68, 68, 0.95)", size=6),
+          hoverinfo="skip",
+      )
+  )
+  fig_acceleration_profile.add_hline(
+      y=0,
+      line_color="rgba(255, 255, 255, 0.4)",
+      line_width=1.2,
+      annotation_text="Accélération ↗ · Décélération ↘",
+      annotation_position="bottom right",
+  )
+  fig_acceleration_profile.add_vline(
+      x=current_phase,
+      line_dash="dash",
+      line_color="#F43F5E",
+      line_width=2.5,
+      annotation_text=f"Actuel : {current_phase:.1f}°",
+      annotation_position="top right",
+      annotation_font_color="#F43F5E",
+  )
+  fig_acceleration_profile.add_trace(
+      go.Scatter(
+          x=[current_phase],
+          y=[current_acceleration],
+          mode="markers",
+          name="Accélération actuelle",
+          marker=dict(color="#F43F5E", size=12, line=dict(color="#FFFFFF", width=1.5)),
+          hovertemplate=(
+              "Phase actuelle : %{x:.1f}°<br>"
+              "Accélération actuelle : %{y:+.3f} Δ(Δσ / 30j) / 30j<extra></extra>"
+          ),
+      )
+  )
   fig_acceleration_profile.update_layout(
       template="plotly_dark", height=440, margin=dict(l=20, r=20, t=40, b=20),
-      xaxis=dict(title="Phase angulaire du cycle (degrés)", range=[0, 359], dtick=45, ticksuffix="°"),
+      xaxis_title="Phase angulaire du cycle (degrés)",
       yaxis_title="Variation de vitesse du Z-Score (Δ(Δσ / 30j) / 30j)",
-      legend=dict(orientation="h", y=1.12, x=0.5, xanchor="center"),
+      xaxis=dict(range=[0, 359], dtick=45, ticksuffix="°"),
+      legend=dict(orientation="h", y=1.12, x=0.5, xanchor="center", groupclick="togglegroup"),
   )
   st.plotly_chart(fig_acceleration_profile, width="stretch")
 
@@ -33554,557 +33873,6 @@ with tab_histoire:
           " Bitcoin – Inspiré des travaux de Didier Sornette"
       ),
   )
-
-with _HiddenCloudSection():
-  st.header("Divers travaux en cours")
-
-
-# ==============================================================================
-  # SECTION : INDICATEUR D'ÉTAT CRITIQUE (PROXY LPPLS / JLS)
-  # ==============================================================================
-  st.markdown("---")
-  st.subheader(
-      "🚨 Critical State Indicator — proxy LPPLS inspiré de Sornette"
-  )
-
-  with st.expander("❓ Méthode et limites — Critical State Indicator"):
-    st.markdown("""
-      * Le cadre Johansen-Ledoit-Sornette relie les bulles à une accélération plus-que-exponentielle décorée d'oscillations log-périodiques, à l'approche d'un état critique.
-      * Ce graphique est un **proxy descriptif**, et non une probabilité de krach ni un taux de hasard JLS calibré : le modèle global ne fournit pas de temps critique local futur $t_c$.
-      * Le score combine **45 % surévaluation** vis-à-vis de la Power Law, **35 % accélération** du rendement logarithmique (60 jours contre 180 jours) et **20 % pression log-périodique positive**.
-      * Les seuils orange et rouge sont calibrés sur l'historique BTC, et non fixés arbitrairement.
-      """)
-
-  st.caption(
-      f"Seuils : vigilance calibrée {csi_vigilance_threshold:.0f}/100 · alerte calibrée {csi_alert_threshold:.0f}/100 · critique opérationnel {csi_critical_threshold:.0f}/100. "
-      "Événement historique : baisse future d'au moins 30 % en 90 jours."
-  )
-  with st.expander("Validation historique des seuils CSI", icon=":material/fact_check:"):
-    st.markdown(
-        "La vigilance privilégie le compromis précision/rappel et l'alerte renforcée double au moins la fréquence historique de l'événement. "
-        f"Le critique opérationnel est fixé à 50 ; le seuil maximisant la précision historique est {csi_statistical_critical_threshold:.0f}."
-    )
-    st.caption(
-        f"Taux d'événements historiques dans l'échantillon : {csi_event_rate:.1%}."
-    )
-    csi_alert_row = csi_calibration_metrics.loc[
-        np.isclose(csi_calibration_metrics["Seuil CSI"], csi_alert_threshold)
-    ].iloc[0]
-    csi_vigilance_row = csi_calibration_metrics.loc[
-        np.isclose(csi_calibration_metrics["Seuil CSI"], csi_vigilance_threshold)
-    ].iloc[0]
-    csi_critical_row = csi_calibration_metrics.loc[
-        np.isclose(csi_calibration_metrics["Seuil CSI"], csi_critical_threshold)
-    ].iloc[0]
-    csi_summary_vigilance, csi_summary_alert, csi_summary_critical = st.columns(3)
-    with csi_summary_vigilance:
-      st.metric(
-          f"Vigilance — CSI ≥ {csi_vigilance_threshold:.0f}",
-          f"{csi_vigilance_row['Précision']:.1%}",
-          delta=f"Rappel : {csi_vigilance_row['Rappel']:.1%}",
-          help="Premier niveau de surveillance : il cherche à repérer tôt une part importante des baisses historiques.",
-          border=True,
-      )
-    with csi_summary_alert:
-      st.metric(
-          f"Alerte calibrée — CSI ≥ {csi_alert_threshold:.0f}",
-          f"{csi_alert_row['Précision']:.1%}",
-          delta=f"Rappel : {csi_alert_row['Rappel']:.1%}",
-          help="Quand le CSI dépasse ce seuil, la valeur principale est la fréquence historique d'une baisse ≥ 30 % en 90 jours.",
-          border=True,
-      )
-    with csi_summary_critical:
-      st.metric(
-          f"Critique opérationnel — CSI ≥ {csi_critical_threshold:.0f}",
-          f"{csi_critical_row['Précision']:.1%}",
-          delta=f"Rappel : {csi_critical_row['Rappel']:.1%}",
-          help="Seuil de gestion fixé à 50. Sa précision et son rappel historiques sont affichés ici ; il est distinct du seuil statistique maximisant la précision.",
-          border=True,
-      )
-    csi_calibration_display = csi_calibration_metrics.copy()
-    csi_calibration_display["Lecture"] = np.select(
-        [
-            np.isclose(csi_calibration_display["Seuil CSI"], csi_critical_threshold),
-            np.isclose(csi_calibration_display["Seuil CSI"], csi_alert_threshold),
-            np.isclose(csi_calibration_display["Seuil CSI"], csi_vigilance_threshold),
-        ],
-        ["Critique opérationnel", "Alerte calibrée", "Vigilance calibrée"],
-        default="Référence",
-    )
-
-    def highlight_csi_threshold(row):
-      if row["Lecture"] == "Critique opérationnel":
-        return ["background-color: #7F1D1D; color: white; font-weight: bold;"] * len(row)
-      if row["Lecture"] == "Alerte calibrée":
-        return ["background-color: #92400E; color: white; font-weight: bold;"] * len(row)
-      if row["Lecture"] == "Vigilance calibrée":
-        return ["background-color: #854D0E; color: white; font-weight: bold;"] * len(row)
-      return [""] * len(row)
-
-    st.dataframe(
-        csi_calibration_display.style.apply(highlight_csi_threshold, axis=1),
-        width="stretch",
-        hide_index=True,
-        height=min(38 + len(csi_calibration_display) * 35, 720),
-        column_config={
-            "Seuil CSI": st.column_config.NumberColumn(format="%d"),
-            "Précision": st.column_config.NumberColumn(format="percent"),
-            "Rappel": st.column_config.NumberColumn(format="percent"),
-            "F1": st.column_config.NumberColumn(format="%.3f"),
-            "Jours signalés": st.column_config.NumberColumn(format="%d"),
-            "Lecture": st.column_config.TextColumn(pinned=True),
-        },
-    )
-
-  fig_hazard = go.Figure()
-  fig_hazard.add_trace(
-      go.Scatter(
-          x=df["Date"] if not log_time_axis else df["lnT"],
-          y=df["Critical_State_Indicator"],
-          mode="lines",
-          name="Critical State Indicator",
-          line=dict(color=hazard_color, width=2),
-          fill="tozeroy",
-          fillcolor=(
-              "rgba(255, 0, 0, 0.1)"
-              if current_hazard >= csi_critical_threshold
-              else "rgba(56, 189, 248, 0.1)"
-          ),
-      )
-  )
-  fig_hazard.add_trace(
-      go.Scatter(
-          x=df["Date"] if not log_time_axis else df["lnT"],
-          y=df["CSI_Acceleration"],
-          mode="lines",
-          name="Accélération (composante)",
-          line=dict(color="#F59E0B", width=1, dash="dot"),
-          opacity=0.7,
-      )
-  )
-  fig_hazard.add_trace(
-      go.Scatter(
-          x=df["Date"] if not log_time_axis else df["lnT"],
-          y=df["CSI_Log_Periodic"],
-          mode="lines",
-          name="Pression log-périodique (composante)",
-          line=dict(color="#A78BFA", width=1, dash="dash"),
-          opacity=0.7,
-      )
-  )
-
-  fig_hazard.add_hline(
-      y=csi_critical_threshold,
-      line_dash="dash",
-      line_color="#FF0000",
-      annotation_text=f"Seuil critique opérationnel ({csi_critical_threshold:.0f})",
-      annotation_position="top right",
-  )
-  fig_hazard.add_hline(
-      y=csi_alert_threshold,
-      line_dash="dot",
-      line_color="#FFA500",
-      annotation_text=f"Seuil d'alerte calibré ({csi_alert_threshold:.0f})",
-      annotation_position="top right",
-  )
-  fig_hazard.add_hline(
-      y=csi_vigilance_threshold,
-      line_dash="dot",
-      line_color="#EAB308",
-      annotation_text=f"Seuil de vigilance calibré ({csi_vigilance_threshold:.0f})",
-      annotation_position="bottom right",
-  )
-
-  fig_hazard.update_layout(
-      template="plotly_dark",
-      height=560,
-      margin=dict(l=55, r=30, t=80, b=55),
-      hovermode="x unified",
-      legend=dict(
-          orientation="h",
-          yanchor="bottom",
-          y=1.03,
-          xanchor="left",
-          x=0,
-          font=dict(size=12),
-      ),
-      yaxis_title="État critique (0–100)",
-      xaxis_title=xaxis_title,
-      yaxis=dict(range=[0, 100], tickfont=dict(size=12), title_font=dict(size=14)),
-      xaxis=dict(tickfont=dict(size=12), title_font=dict(size=14)),
-  )
-  st.plotly_chart(fig_hazard, width="stretch")
-
-  col_haz1, col_haz2 = st.columns([1, 2])
-  with col_haz1:
-    st.metric(
-        "État critique actuel",
-        f"{current_hazard:.1f} / 100",
-        help=(
-            "❓ Score synthétique de 0 à 100 inspiré des signatures LPPLS de"
-            " criticité ; ce n'est pas une probabilité de krach."
-        ),
-    )
-  with col_haz2:
-    st.markdown(
-        f"**Statut du Régime :** <span"
-        f" style='color:{hazard_color};font-weight:bold;font-size:1.2em;'>{hazard_txt}</span>",
-        unsafe_allow_html=True,
-    )
-
-  with st.container(border=True):
-    st.markdown("**Signal de risque de baisse forte (CSI)**")
-    if current_hazard >= csi_critical_threshold:
-      st.error(
-          f"Risque élevé : CSI à {current_hazard:.1f}/100, au-dessus du seuil critique opérationnel de {csi_critical_threshold:.0f}. "
-          "Historiquement, ce niveau a été associé plus souvent à une baisse future d'au moins 30 % en 90 jours.",
-          icon=":material/warning:",
-      )
-    elif current_hazard >= csi_alert_threshold:
-      st.warning(
-          f"Risque en hausse : CSI à {current_hazard:.1f}/100, au-dessus du seuil d'alerte de {csi_alert_threshold:.0f}. "
-          "Cette version Cloud ne calcule pas les confirmations LPPLS locales.",
-          icon=":material/visibility:",
-      )
-    elif current_hazard >= csi_vigilance_threshold:
-      st.info(
-          f"Vigilance : CSI à {current_hazard:.1f}/100, au-dessus du seuil de vigilance de {csi_vigilance_threshold:.0f}. "
-          "Ce n'est pas encore une alerte de baisse forte.",
-          icon=":material/info:",
-      )
-    else:
-      st.success(
-          "Pas de signal CSI actuel de risque de baisse forte.",
-          icon=":material/check_circle:",
-      )
-
-  st.markdown("---")
-  st.subheader("Estimation locale du temps critique LPPLS ($t_c$)")
-  st.info(
-      "L'estimation locale de tc et le backtest walk-forward nécessitent des calibrations LPPLS automatiques et coûteuses. "
-      "Ils sont disponibles dans la version locale complète ; cette version Cloud reste volontairement manuelle et légère.",
-      icon=":material/info:",
-  )
-
-
-
-  # ==============================================================================
-  # SECTION : FILTRE DE KALMAN (Suivi dynamique avec Guide de lecture)
-  # ==============================================================================
-  import numpy as np
-  import pandas as pd
-  import plotly.graph_objects as go
-  import streamlit as st
-
-  st.markdown("---")
-  st.subheader("🔬 Filtre de Kalman : Suivi Dynamique de la Tendance Power Law")
-
-  # Commandes de réglage des paramètres du filtre
-  col_k1, col_k2, col_k3 = st.columns(3)
-  with col_k1:
-    q_slope_exp = st.slider(
-        "Log10(Bruit Pente Q_slope)",
-        min_value=-8,
-        max_value=-3,
-        value=-6,
-        step=1,
-        help=(
-            "Ajuste la vitesse d'adaptation de la pente. Plus c'est haut, plus le"
-            " filtre réagit vite."
-        ),
-        key="kalman_q_slope",
-    )
-  with col_k2:
-    q_intercept_exp = st.slider(
-        "Log10(Bruit Intercept Q_int)",
-        min_value=-8,
-        max_value=-3,
-        value=-5,
-        step=1,
-        help="Ajuste la vitesse d'adaptation de l'ordonnée à l'origine.",
-        key="kalman_q_intercept",
-    )
-  with col_k3:
-    r_noise = st.slider(
-        "Bruit de mesure (R)",
-        min_value=0.001,
-        max_value=0.1,
-        value=0.01,
-        step=0.005,
-        help="Confiance accordée aux données brutes entrantes.",
-        key="kalman_r_noise",
-    )
-
-  if "actualLog" in df.columns and "lnT" in df.columns:
-    valid_idx = ~np.isnan(df["actualLog"]) & ~np.isnan(df["lnT"])
-    x_fit = df["lnT"].values[valid_idx]
-    y_fit = df["actualLog"].values[valid_idx]
-    dates_valid = df["Date"].values[valid_idx]
-
-    if len(x_fit) > 50:
-      n_steps = len(x_fit)
-      x_est = np.zeros((2, 1))  # État initial [Intercept, Pente]
-      P = np.eye(2) * 1000.0  # Matrice de covariance initiale
-
-      # Application des valeurs dynamiques issues des sliders
-      Q = np.diag([10.0**q_intercept_exp, 10.0**q_slope_exp])
-      R = np.array([[r_noise]])
-
-      intercepts = []
-      slopes = []
-
-      for i in range(n_steps):
-        H = np.array([[1.0, x_fit[i]]])
-
-        # Prédiction
-        P_pred = P + Q
-
-        # Mise à jour (Correction)
-        y_meas = np.array([[y_fit[i]]])
-        S = H.dot(P_pred).dot(H.T) + R
-        K = P_pred.dot(H.T).dot(np.linalg.inv(S))
-
-        x_est = x_est + K.dot(y_meas - H.dot(x_est))
-        P = (np.eye(2) - K.dot(H)).dot(P_pred)
-
-        intercepts.append(x_est[0, 0])
-        slopes.append(x_est[1, 0])
-
-      # Visualisation dynamique de la pente (m) au fil du temps
-      fig_kalman = go.Figure()
-      fig_kalman.add_trace(
-          go.Scatter(
-              x=dates_valid,
-              y=slopes,
-              mode="lines",
-              name="Pente Dynamique (m) - Kalman",
-              line=dict(color="#38BDF8", width=2),
-          )
-      )
-
-      # Ajout d'une ligne de repère pour la pente globale classique (ex: 5.8)
-      fig_kalman.add_hline(
-          y=5.8,
-          line_dash="dash",
-          line_color="#EF4444",
-          annotation_text="Pente OLS Globale (~5.8)",
-          annotation_position="bottom right",
-      )
-
-      fig_kalman.update_layout(
-          template="plotly_dark",
-          height=420,
-          margin=dict(l=20, r=20, t=30, b=30),
-          xaxis_title="Date",
-          yaxis_title="Valeur de la Pente (m)",
-      )
-
-      st.plotly_chart(fig_kalman, width="stretch")
-
-      # ==================== GUIDE DE LECTURE INTÉGRÉ ====================
-      with st.expander("📖 Guide de lecture & Interprétation du Filtre de Kalman"):
-        st.markdown("""
-              * **Ce que montre ce graphique :** Il trace l'évolution séquentielle et adaptative de la pente ($m$) de la loi de puissance au fil du temps, sans utiliser une régression globale sur tout l'historique d'un seul bloc.
-              * **La phase initiale (2010 - 2012) :** Les mouvements marqués au début s'expliquent par la phase d'apprentissage (*burn-in*) du filtre et la forte volatilité relative des premières années de Bitcoin.
-              * **La zone de convergence (2016 - 2026) :** L'aplatissement progressif de la courbe montre la **maturation structurelle** de Bitcoin. Avec un volume de données massif, les nouveaux cycles n'altèrent plus la tendance de fond macroscopique.
-              * **Impact des réglages ($Q$ et $R$) :** 
-                  * Augmenter le bruit de processus ($Q$) rend le filtre plus nerveux et sensible aux variations récentes.
-                  * Le réduire fige la trajectoire et accentue son inertie face aux chocs de court terme.
-              """)
-    else:
-      st.warning("Données insuffisantes pour initialiser le filtre de Kalman.")
-  else:
-    st.warning("Colonnes 'actualLog' ou 'lnT' manquantes.")
-
-  # ==============================================================================
-  # SECTION : ANALYSE GARCH & SPECTRE DE VOLATILITÉ (AVEC PARAMÈTRES AJUSTABLES)
-  # ==============================================================================
-  st.markdown("---")
-  st.subheader("📈 Analyse GARCH & Spectre de Volatilité des Résidus")
-
-  with st.expander(
-      "⚙️ Paramètres ajustables du Modèle GARCH", expanded=True
-  ):
-    col_g1, col_g2, col_g3 = st.columns(3)
-    with col_g1:
-      garch_p = st.slider(
-          "Paramètre p (Retard ARCH)",
-          min_value=1,
-          max_value=3,
-          value=1,
-          step=1,
-          help="Nombre de retards de la volatilité passée (termes ARCH).",
-      )
-    with col_g2:
-      garch_q = st.slider(
-          "Paramètre q (Retard GARCH)",
-          min_value=1,
-          max_value=3,
-          value=1,
-          step=1,
-          help=(
-              "Nombre de retards de la variance conditionnelle passée (termes"
-              " GARCH)."
-          ),
-      )
-    with col_g3:
-      garch_dist = st.selectbox(
-          "Distribution des erreurs",
-          options=["normal", "t", "skewt"],
-          format_func=lambda x: {
-              "normal": "Normale (Gaussienne)",
-              "t": "Student-t (Queues lourdes)",
-              "skewt": "Student-t Asymétrique",
-          }.get(x, x),
-          help=(
-              "Loi de probabilité des résidus. 'Student-t' est recommandée pour"
-              " les cryptomonnaies."
-          ),
-      )
-
-  with st.expander(
-      "❓ Guide de Lecture - Analyse GARCH & Spectre de Volatilité", expanded=False
-  ):
-    st.markdown("""
-      * **Modèle GARCH(p,q)** : Capture l'hétéroscédasticité conditionnelle (volatilité variable et groupée dans le temps) des résidus du modèle.
-      * **Volatilité Conditionnelle** : Représente l'évolution dynamique de l'écart-type de la variance des résidus.
-      * **Spectre de Puissance de la Volatilité** : Analyse les périodicités dominantes (en années) dans les fluctuations de la volatilité à l'aide d'un periodogramme (FFT).
-      """)
-
-  if HAS_ARCH and "residuals" in df.columns:
-    res_clean = df["residuals"].dropna() * 100.0
-    try:
-      am = arch_model(
-          res_clean,
-          mean="Zero",
-          vol="GARCH",
-          p=garch_p,
-          q=garch_q,
-          dist=garch_dist,
-      )
-      res_garch = am.fit(disp="off")
-      cond_vol = res_garch.conditional_volatility
-
-      fig_garch = go.Figure()
-      fig_garch.add_trace(
-          go.Scatter(
-              x=df["Date"].iloc[-len(cond_vol) :],
-              y=cond_vol,
-              mode="lines",
-              name=f"Volatilité Conditionnelle GARCH({garch_p},{garch_q}) [{garch_dist}]",
-              line=dict(color="#A855F7", width=1.5),
-          )
-      )
-      fig_garch.update_layout(
-          template="plotly_dark",
-          height=350,
-          margin=dict(l=20, r=20, t=30, b=20),
-          xaxis_title="Date",
-          yaxis_title="Volatilité Conditionnelle (%)",
-      )
-      st.plotly_chart(fig_garch, use_container_width=True)
-
-      frequencies, psd = periodogram(cond_vol.values, fs=1.0)
-      valid_spec = frequencies > 0
-      freqs_clean = frequencies[valid_spec]
-      psd_clean = psd[valid_spec]
-      periods_years = (1.0 / freqs_clean) / 365.25
-
-      fig_spec = go.Figure()
-      fig_spec.add_trace(
-          go.Scatter(
-              x=periods_years,
-              y=psd_clean,
-              mode="lines",
-              name="Densité Spectrale de Puissance de la Volatilité",
-              line=dict(color="#34D399", width=1.5),
-          )
-      )
-      fig_spec.update_layout(
-          template="plotly_dark",
-          height=350,
-          margin=dict(l=20, r=20, t=30, b=20),
-          xaxis_title="Période (Années)",
-          yaxis_title="Puissance Spectrale",
-          xaxis=dict(type="log"),
-      )
-      st.plotly_chart(fig_spec, use_container_width=True)
-
-    except Exception as e:
-      st.error(f"Erreur lors de l'estimation du modèle GARCH : {e}")
-  else:
-    if not HAS_ARCH:
-      st.warning(
-          "La bibliothèque `arch` n'est pas installée. Veuillez l'installer (`pip"
-          " install arch`) pour activer l'analyse GARCH."
-      )
-    else:
-      st.warning("Données de résidus insuffisantes pour l'analyse GARCH.")
-
-
-with tab_mstr:
-  st.header("MSTR — Power Law et LPPL exploratoire")
-  st.info(
-      "Le modèle est calibré indépendamment de Bitcoin. Le point de départ 2020 permet de tester "
-      "l'hypothèse d'un régime Power Law plus récent pour Strategy ; ce n'est pas une validation prédictive.",
-      icon=":material/insights:",
-  )
-  mstr_start_date = st.date_input(
-      "Début de calibration MSTR", value=pd.Timestamp("2020-01-01").date(), key="mstr_start_date",
-      help="Changez cette date pour comparer la stabilité du fit. 2020 est le point de départ recommandé.",
-  )
-  if st.button("Charger l'analyse MSTR", key="load_mstr_analysis", icon=":material/download:"):
-    st.session_state["mstr_analysis_loaded"] = True
-
-  if not st.session_state.get("mstr_analysis_loaded", False):
-    st.info("Chargez les données MSTR pour lancer la calibration Power Law et LPPL.", icon=":material/download:")
-  else:
-    with st.spinner("Chargement et calibration de MSTR…"):
-      mstr_raw = load_mstr_data()
-      mstr_model, mstr_metrics = fit_mstr_log_periodic_model(mstr_raw, mstr_start_date)
-    if mstr_model.empty:
-      st.error("Données MSTR insuffisantes ou indisponibles pour cette période.")
-    else:
-      mstr_cols = st.columns(4)
-      mstr_cols[0].metric("Cours MSTR", f"${mstr_model['Close'].iloc[-1]:,.2f}")
-      mstr_cols[1].metric("Z-score Power Law", f"{mstr_model['z_score_pl'].iloc[-1]:+.2f}σ")
-      mstr_cols[2].metric("R² LPPL", f"{mstr_metrics['r_squared']:.3f}")
-      mstr_cols[3].metric("Fréquence LPPL ω", f"{mstr_metrics['omega']:.2f}")
-      future_days = np.arange(len(mstr_model) + 1, len(mstr_model) + 1096, dtype=float)
-      future_log_time = np.log(future_days)
-      future_dates = pd.date_range(mstr_model["Date"].iloc[-1] + pd.Timedelta(days=1), periods=1095, freq="D")
-      trend_coef = np.asarray(mstr_metrics["trend_coefficients"])
-      lppl_coef = np.asarray(mstr_metrics["lppl_coefficients"])
-      future_trend_log = np.column_stack([np.ones(1095), future_log_time]) @ trend_coef
-      omega = mstr_metrics["omega"]
-      future_design = np.column_stack([
-          np.ones(1095), future_log_time,
-          np.cos(omega * future_log_time), np.sin(omega * future_log_time),
-          np.cos(2.0 * omega * future_log_time), np.sin(2.0 * omega * future_log_time),
-      ])
-      future_lppl_log = future_design @ lppl_coef
-      future_lppl = np.exp(future_lppl_log)
-      future_uncertainty = mstr_metrics["sigma"] * np.sqrt(1.0 + np.arange(1, 1096) / 365.0)
-      fig_mstr = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.72, 0.28], vertical_spacing=0.08)
-      fig_mstr.add_trace(go.Scatter(x=mstr_model["Date"], y=mstr_model["Close"], name="MSTR", line=dict(color="#34D399", width=1.8)), row=1, col=1)
-      fig_mstr.add_trace(go.Scatter(x=mstr_model["Date"], y=mstr_model["lppl_price"], name="LPPL harmonique", line=dict(color="#F59E0B", width=2)), row=1, col=1)
-      fig_mstr.add_trace(go.Scatter(x=mstr_model["Date"], y=mstr_model["trend_price"], name="Tendance Power Law", line=dict(color="#38BDF8", width=2, dash="dash")), row=1, col=1)
-      fig_mstr.add_trace(go.Scatter(x=mstr_model["Date"], y=mstr_model["upper_band"], name="Power Law +2σ", line=dict(color="#64748B", width=1, dash="dot")), row=1, col=1)
-      fig_mstr.add_trace(go.Scatter(x=mstr_model["Date"], y=mstr_model["lower_band"], name="Power Law −2σ", line=dict(color="#64748B", width=1, dash="dot")), row=1, col=1)
-      fig_mstr.add_trace(go.Scatter(x=future_dates, y=np.exp(future_lppl_log + future_uncertainty), name="Incertitude LPPL", line=dict(color="rgba(245,158,11,0)", width=0), showlegend=False), row=1, col=1)
-      fig_mstr.add_trace(go.Scatter(x=future_dates, y=np.exp(future_lppl_log - future_uncertainty), name="Bande LPPL ±1σ", fill="tonexty", fillcolor="rgba(245,158,11,0.14)", line=dict(color="rgba(245,158,11,0)", width=0)), row=1, col=1)
-      fig_mstr.add_trace(go.Scatter(x=future_dates, y=np.exp(future_trend_log), name="Projection Power Law — 3 ans", line=dict(color="#38BDF8", width=2, dash="dash")), row=1, col=1)
-      fig_mstr.add_trace(go.Scatter(x=future_dates, y=future_lppl, name="Projection LPPL — 3 ans", line=dict(color="#F59E0B", width=2, dash="dash")), row=1, col=1)
-      fig_mstr.add_vline(x=mstr_model["Date"].iloc[-1], line=dict(color="rgba(255,255,255,0.55)", dash="dot"), row=1, col=1)
-      fig_mstr.add_trace(go.Scatter(x=mstr_model["Date"], y=mstr_model["z_score_pl"], name="Z-score Power Law", line=dict(color="#A78BFA", width=1.5)), row=2, col=1)
-      fig_mstr.add_hline(y=0, line_color="rgba(255,255,255,0.45)", row=2, col=1)
-      fig_mstr.update_layout(template="plotly_dark", height=650, hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0), margin=dict(l=50, r=25, t=45, b=40))
-      fig_mstr.update_yaxes(type="log", title="Cours MSTR (USD)", row=1, col=1)
-      fig_mstr.update_yaxes(title="Z-score (σ)", row=2, col=1)
-      fig_mstr.update_xaxes(title="Date", row=2, col=1)
-      st.plotly_chart(fig_mstr, width="stretch")
-      st.caption("La tendance est une régression log(prix) sur log(temps). Le LPPL harmonique ajoute deux oscillations log-périodiques. La partie pointillée prolonge les modèles sur trois ans ; la bande orange est une incertitude indicative de ±1σ qui s'élargit avec l'horizon.")
-
 
 with tab_comparaison:
   st.header("Comparaison Bitcoin, Brent, or et Nasdaq")
